@@ -1,0 +1,30 @@
+/.idea/
+/rag-cache/
+/target/
+/backend.log
+/nul
+/run-log.jsonl
+/petriflow-chat.html
+/chats.json
+*.log
+
+# Docker
+/data/
+
+# API Keys and Secrets - NEVER commit these!
+/src/main/resources/application.properties
+/src/main/resources/application-*.properties
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*-secret.yml
+*-secret.yaml
+credentials.json
+secrets.json
+apikeys.txt
+
+# OS files
+.DS_Store
+Thumbs.db
