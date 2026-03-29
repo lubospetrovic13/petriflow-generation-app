@@ -329,6 +329,14 @@ def cs = findCases { it.processIdentifier.eq("process_id") }
 def c  = createCase("child_id", "Title", "blue")  // full
 def c  = createCase("child_id")                   // minimal
 def val = c.getFieldValue("field_id")             // alt to c.dataSet["field_id"]?.value
+
+// Check token state of a place on a case — use activePlaces, NOT getPlace() which does not exist
+def hasToken = (c.activePlaces?.get("p_open") ?: 0) > 0   // true if p_open has at least 1 token
+// Use this to filter cases by workflow state:
+def approvedOrders = findCases { it.processIdentifier.eq(workspace + "order_process") }
+        .findAll { c -> (c.activePlaces?.get("p_open") ?: 0) > 0 }
+
+// ❌ NEVER use c.getPlace("p_open") — this method does not exist on Case objects and always returns null
 workflowService.deleteCase(c.stringId)
 changeCaseProperty("title").about { "New Title" }
 changeCaseProperty("color").about { "green" }     // red|orange|yellow|green|teal|cyan|blue|indigo|purple|pink|brown|grey
@@ -530,7 +538,7 @@ Always-accessible status → Detail task + read arc (Pattern 16)
 <data type="number"><id>go_approve</id><title>Go Approve</title><init>0</init></data>
 <data type="number"><id>go_reject</id><title>Go Reject</title><init>0</init></data>
 <data type="enumeration_map"><id>decision</id><title>Decision</title>
-<options><option key="approve">Approve</option><option key="reject">Reject</option></options>
+  <options><option key="approve">Approve</option><option key="reject">Reject</option></options>
 </data>
 <place><id>approved</id><x>880</x><y>112</y><label>Approved</label><tokens>0</tokens><static>false</static></place>
 <place><id>rejected</id><x>880</x><y>304</y><label>Rejected</label><tokens>0</tokens><static>false</static></place>
@@ -614,10 +622,10 @@ Each review branch has routing number fields + variable arcs. Apply Pattern 2 ro
 ```xml
 <data type="number"><id>legal_approve</id><title>Legal Approve</title><init>0</init></data>
 <data type="number"><id>legal_reject</id><title>Legal Reject</title><init>0</init></data>
-        <!-- same for fin_approve, fin_reject -->
+<!-- same for fin_approve, fin_reject -->
 <arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>legal_done</destinationId><multiplicity>0</multiplicity><reference>legal_approve</reference></arc>
 <arc><id>arc_lr</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>rejected</destinationId>  <multiplicity>0</multiplicity><reference>legal_reject</reference></arc>
-        <!-- same arcs for review_finance → fin_approve/fin_reject -->
+<!-- same arcs for review_finance → fin_approve/fin_reject -->
 ```
 
 > ⚠️ If either branch rejects, its token goes to `rejected` — other branch token gets stuck in `join`. Expected: rejection terminates immediately.
@@ -670,12 +678,12 @@ else                             { change toA value { 0 }; change toB value { 1 
 <data type="number"><id>from_legal</id>   <title>From Legal</title>   <init>1</init></data>
 <data type="number"><id>from_finance</id> <title>From Finance</title> <init>1</init></data>
 <data type="multichoice_map"><id>departments</id><title>Departments</title>
-<options><option key="legal">Legal</option><option key="finance">Finance</option></options>
+  <options><option key="legal">Legal</option><option key="finance">Finance</option></options>
 </data>
-        <!-- OR-split arcs -->
+<!-- OR-split arcs -->
 <arc><id>a_vl</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_legal_in</destinationId>  <multiplicity>0</multiplicity><reference>to_legal</reference></arc>
 <arc><id>a_vf</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_finance_in</destinationId><multiplicity>0</multiplicity><reference>to_finance</reference></arc>
-        <!-- OR-join incoming variable arcs -->
+<!-- OR-join incoming variable arcs -->
 <arc><id>a_jl</id><type>regular</type><sourceId>p_legal_out</sourceId>  <destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_legal</reference></arc>
 <arc><id>a_jf</id><type>regular</type><sourceId>p_finance_out</sourceId><destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_finance</reference></arc>
 ```
@@ -698,12 +706,12 @@ Use when N branches is dynamic. Pre-load `go_count` tokens into merge place; eac
 ```xml
 <data type="number"><id>go_count</id><title>Branch Count</title><init>0</init></data>
 <data type="number"><id>to_a</id><title>To A</title><init>0</init></data>
-        <!-- OR-split + pre-load -->
+<!-- OR-split + pre-load -->
 <arc><id>a_ta</id>   <type>regular</type><sourceId>t_register</sourceId><destinationId>p_a</destinationId>    <multiplicity>0</multiplicity><reference>to_a</reference></arc>
 <arc><id>a_pre</id>  <type>regular</type><sourceId>t_register</sourceId><destinationId>p_merge</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
-        <!-- Each branch task → merge -->
+<!-- Each branch task → merge -->
 <arc><id>a_am</id>   <type>regular</type><sourceId>task_a</sourceId>   <destinationId>p_merge</destinationId><multiplicity>1</multiplicity></arc>
-        <!-- join -->
+<!-- join -->
 <arc><id>a_mf</id>   <type>regular</type><sourceId>p_merge</sourceId>  <destinationId>t_final</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
 ```
 
@@ -799,7 +807,7 @@ def current = (vote_count.value as Integer) ?: 0
 change vote_count value { (current + 1) as Double }
 if (current + 1 >= 2) {
   findTasks { it.caseId.eq(useCase.stringId).and(it.transitionId.in(["review_a","review_b","review_c"])) }
-          .each { t -> cancelTask(t) }
+    .each { t -> cancelTask(t) }
 }
 ```
 
@@ -854,7 +862,7 @@ Both system tasks share `p0` — only the one fired by action consumes the token
 <transition><id>route_to_legal</id><x>496</x><y>112</y><label>To Legal</label>
   <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 <transition><id>route_to_pr</id><x>496</x><y>304</y><label>To PR</label>
-<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
+  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 ```
 
 ```groovy
@@ -876,12 +884,12 @@ async.run {
 ```xml
 <data type="taskRef"><id>form_ref</id><title/><init>form_task</init></data>
 <transition><id>form_task</id><x>304</x><y>16</y><label>Form</label>
-<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-<dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
-  <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
-    <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
-  </dataRef>
-</dataGroup>
+  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+  <dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
+    <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
+      <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
+    </dataRef>
+  </dataGroup>
 </transition>
 <place><id>p_form</id><x>112</x><y>16</y><label>Form</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_form</id><type>read</type><sourceId>p_form</sourceId><destinationId>form_task</destinationId><multiplicity>1</multiplicity></arc>
@@ -949,7 +957,7 @@ Use when a task must stay open indefinitely — a dynamic list, a dashboard, or 
 ```xml
 <place><id>p_list</id><x>112</x><y>208</y><label>List</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_read</id><type>read</type><sourceId>p_list</sourceId><destinationId>t_list</destinationId><multiplicity>1</multiplicity></arc>
-        <!-- NO outgoing arc from t_list -->
+<!-- NO outgoing arc from t_list -->
 ```
 
 > ⚠️ **Never pair a regular arc with a read arc on a permanently open task.**
@@ -975,41 +983,50 @@ change item_tasks value { (item_tasks.value ?: []) + tid }
 
 > **Each process is a completely isolated namespace.** Roles, fields, transitions, and places from one process are invisible to all others — they cannot be referenced in XML from another process. Cross-process interaction happens exclusively through action code (`findCase`, `findTask`, `setData`, `assignTask`, `finishTask`). When generating a multi-process application, always produce each process as a fully independent `<document>` with its own complete set of roles, fields, and structure. Never reference a role ID, field ID, or transition ID from another process in XML.
 
-### IPC-0 — Cross-process taskRef update via permanently alive system task
+### IPC-0 — Cross-process taskRef embedding (THE ONLY CORRECT PATTERN)
 
-The most reliable way to embed tasks from Process B into a `taskRef` field in Process A.
+**C9 — When embedding tasks from Process B into a taskRef in Process A, there is exactly one correct approach. Any other approach will fail.**
 
-**Setup in Process A (Order):** a system task on a read arc, token arrives when case reaches open state:
+**❌ NEVER generate these patterns — they do not work:**
+- `setData(transition, case, ["refresh_trigger": UUID])` + data `set` event + `findTasks/findCase` loop
+- `findCase()` inside `.findAll {}` blocks (N+1 queries, unreliable)
+- `findTasks { it.dataSet... }` inside any query predicate (MissingPropertyException)
+- `refresh_trigger` field with UUID to "notify" parent process
+
+**✅ THE ONLY CORRECT PATTERN — IPC-0:**
+
+**Step 1 — Process A (Order): permanently alive system task as setData target.**
+Token arrives when case reaches open state, read arc keeps task alive forever:
 ```xml
 <arc><id>a1</id><type>regular</type><sourceId>t_approve</sourceId><destinationId>p_panel</destinationId><multiplicity>0</multiplicity><reference>go_approve</reference></arc>
 <arc><id>a2</id><type>read</type><sourceId>p_panel</sourceId><destinationId>t_invoice_panel</destinationId><multiplicity>1</multiplicity></arc>
-<!-- t_invoice_panel: system role, no dataGroup — only a setData target -->
+<!-- t_invoice_panel: system role, no dataGroup — only a setData target, never shown to users -->
 ```
 
-**Process B (Invoice) appends its task ID to Process A's taskRef:**
+**Step 2 — Process B (Invoice): append this task's ID directly to Process A's taskRef.**
+Call inside `async.run` from register finish post:
 ```groovy
-// t_notify finish post
-parent_order_id: f.parent_order_id;
-def orderCase = findCase { it._id.eq(parent_order_id.value) }
-if (orderCase) {
-    def myTask = findTask { it.transitionId.eq("t_invoice_approval").and(it.caseId.eq(useCase.stringId)) }
-    if (myTask) {
-        def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
-        setData("t_invoice_panel", orderCase, [
-            "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
-        ])
+parent_id: f.parent_id;
+async.run {
+    def orderCase = findCase { it._id.eq(parent_id.value) }
+    if (orderCase) {
+        def myTask = findTask { it.transitionId.eq("invoice_approval").and(it.caseId.eq(useCase.stringId)) }
+        if (myTask) {
+            def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
+            setData("t_invoice_panel", orderCase, [
+                "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
+            ])
+        }
     }
 }
 ```
 
-**Invoice approval task must be permanently open (read arc) so it stays embeddable:**
+**Step 3 — Process B: invoice_approval task must be permanently open (read arc).**
+Token placed after register finishes, read arc keeps task alive for embedding:
 ```xml
-<arc><id>a3</id><type>read</type><sourceId>p_approval</sourceId><destinationId>t_invoice_approval</destinationId><multiplicity>1</multiplicity></arc>
+<arc><id>a3</id><type>regular</type><sourceId>register</sourceId><destinationId>p_approval</destinationId><multiplicity>1</multiplicity></arc>
+<arc><id>a4</id><type>read</type><sourceId>p_approval</sourceId><destinationId>invoice_approval</destinationId><multiplicity>1</multiplicity></arc>
 ```
-
-> ⚠️ Do NOT use trigger field + UUID pattern for cross-process taskRef updates — it relies on QueryDSL dataSet filtering which fails at runtime. Do NOT call `setData` via a human task transition ID — human tasks may not be active. Always target a permanently alive **system-role** task.
-
----
 
 ### IPC-1 — Parent creates child, gets first task immediately
 
@@ -1139,7 +1156,7 @@ make iban, hidden   on t_submit when { return contract_type.value != "bank_trans
 ```groovy
 country: f.country, city: f.city;
 def conn = (java.net.HttpURLConnection) new java.net.URL(
-  "https://api.example.com/cities?country=${country.value}").openConnection()
+        "https://api.example.com/cities?country=${country.value}").openConnection()
 conn.setRequestMethod("GET"); conn.setConnectTimeout(5000); conn.setReadTimeout(10000)
 def result = new groovy.json.JsonSlurper().parseText(conn.getInputStream().getText("UTF-8"))
 change city options { result.collectEntries { [(it.code): it.name] } }

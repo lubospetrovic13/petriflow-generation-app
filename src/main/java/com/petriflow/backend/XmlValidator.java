@@ -127,9 +127,6 @@ public class XmlValidator {
         // 8. Check for assignTask/finishTask on human tasks (C3 violation)
         errors.addAll(checkAssignTaskOnHumanTasks(xml));
 
-        // 9. Check for dataSet field filtering inside findCases/findTasks query blocks
-        errors.addAll(checkDataSetInQueryPredicate(xml));
-
         return errors;
     }
 
@@ -362,30 +359,64 @@ public class XmlValidator {
 
 
     /**
-     * Check for dataSet field value filtering inside findCases/findTasks query blocks.
-     * it.dataSet.get("field").value.eq(...) and it.dataSet.get("field").contains(...)
-     * throw MissingPropertyException at runtime — only native Case/Task properties work in QueryDSL predicates.
+     * Check for c.getPlace("...") usage — this method does not exist on Case objects.
+     * Correct approach: (c.activePlaces?.get("p_id") ?: 0) > 0
      */
-    private static List<String> checkDataSetInQueryPredicate(String xml) {
+    private static List<String> checkGetPlaceUsage(String xml) {
         List<String> errors = new ArrayList<>();
-
-        // Simple approach: check if xml contains both a findCases/findTasks call AND it.dataSet in proximity.
-        // Extract all CDATA blocks and scan them line by line for co-occurrence.
         Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
         Matcher cdataMatcher = cdataPattern.matcher(xml);
-
         while (cdataMatcher.find()) {
             String block = cdataMatcher.group(1);
-            // Check if this CDATA block contains findCases or findTasks with it.dataSet nearby
-            if ((block.contains("findCases") || block.contains("findTasks")) && block.contains("it.dataSet")) {
-                errors.add("Found it.dataSet used inside a findCases/findTasks query predicate - " +
-                        "QueryDSL does not support filtering by dataSet field values. " +
-                        "Load all cases/tasks first, then filter in Groovy: " +
-                        ".findAll { c -> c.dataSet?.get(fieldId)?.value == expectedValue }");
+            if (block.contains(".getPlace(")) {
+                errors.add("Found .getPlace() call in action code - this method does not exist on Case objects. " +
+                        "Use (c.activePlaces?.get(placeId) ?: 0) > 0 to check token state instead.");
                 break;
             }
         }
+        return errors;
+    }
 
+    /**
+     * Check for the trigger field + UUID refresh pattern (IPC anti-pattern).
+     * UUID.randomUUID() inside setData targeting a transition suggests the trigger field pattern.
+     * The correct approach is IPC-0: permanently alive system task + direct taskRef append.
+     */
+    private static List<String> checkTriggerFieldUuidPattern(String xml) {
+        List<String> errors = new ArrayList<>();
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            if (block.contains("UUID.randomUUID()") && block.contains("setData(")) {
+                errors.add("Found UUID.randomUUID() combined with setData() in action code - this suggests the trigger field refresh pattern " +
+                        "which is unreliable for cross-process taskRef updates. " +
+                        "Use IPC-0 instead: a permanently alive system task as setData target, " +
+                        "and append task IDs directly to the taskRef field.");
+                break;
+            }
+        }
+        return errors;
+    }
+
+
+    /**
+     * Check for findCase() calls inside .findAll { } blocks — N+1 query anti-pattern.
+     * Each iteration hits the database separately. Use IPC-0 direct append instead.
+     */
+    private static List<String> checkFindCaseInFindAll(String xml) {
+        List<String> errors = new ArrayList<>();
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            if (block.contains(".findAll") && block.contains("findCase(")) {
+                errors.add("Found findCase() inside a .findAll block — this is an N+1 query anti-pattern. " +
+                        "Each iteration hits the database separately. " +
+                        "Use IPC-0 instead: append task IDs directly via setData on a permanently alive system task.");
+                break;
+            }
+        }
         return errors;
     }
 

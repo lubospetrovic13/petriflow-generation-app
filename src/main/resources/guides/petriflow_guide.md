@@ -2090,6 +2090,15 @@ assignTask(firstTask)   // assign without specifying a user (assigns to current 
 // Read a field value from a case object directly
 def val = someCase.getFieldValue("field_id")   // alternative to someCase.dataSet["field_id"]?.value
 
+// Check token state of a place — use activePlaces (Map<String, Integer>)
+def hasToken = (someCase.activePlaces?.get("p_open") ?: 0) > 0
+
+// Filter cases by place token state (e.g. only approved orders):
+def approved = findCases { it.processIdentifier.eq(workspace + "order_process") }
+        .findAll { c -> (c.activePlaces?.get("p_open") ?: 0) > 0 }
+
+// ❌ c.getPlace("p_open") does NOT exist — never use it, always returns null
+
 // Delete a case programmatically
 workflowService.deleteCase(someCase.stringId)
 
@@ -4415,6 +4424,66 @@ This is why §6 exists: not because cross-process interaction is unusual, but be
 
 ---
 
+### 6.0 Cross-process taskRef update — IPC-0 pattern (recommended)
+
+When one process needs to embed tasks from another process into a `taskRef` panel, the most reliable pattern uses a **permanently alive system task** in the receiving process as a stable `setData` target. The embedded task is appended directly — no trigger fields, no UUID hacks, no reactive events.
+
+**Why this pattern and not trigger field + data event set:**
+- `setData("transition_id", case, ...)` silently fails if the transition is not currently active
+- Even if it succeeds, the `set` event then runs `findTasks` with Groovy `.findAll { findCase... }` — N+1 queries per invoice
+- The IPC-0 pattern is direct: Invoice appends its own task ID once, atomically
+
+**Order process — permanently alive system task:**
+
+```xml
+<!-- Place receives token when order is approved -->
+<place><id>p_panel</id><tokens>0</tokens><static>false</static></place>
+
+<!-- System task: always alive once order is approved — only a setData target -->
+<transition>
+    <id>invoice_panel_target</id>
+    <label>System: Invoice Update Target</label>
+    <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+</transition>
+
+<!-- Token arrives when manager approves (same variable arc as p_open) -->
+<arc><id>a_tok</id><type>regular</type><sourceId>t_review</sourceId><destinationId>p_panel</destinationId><multiplicity>0</multiplicity><reference>go_approve</reference></arc>
+<arc><id>a_read</id><type>read</type><sourceId>p_panel</sourceId><destinationId>invoice_panel_target</destinationId><multiplicity>1</multiplicity></arc>
+```
+
+**Invoice process — notify_order system task appends task ID directly:**
+
+```groovy
+// register finish post
+order_id: f.order_id;
+async.run {
+    def orderCase = findCase { it._id.eq(order_id.value) }
+    if (orderCase) {
+        def myTask = findTask { it.transitionId.eq("invoice_approval").and(it.caseId.eq(useCase.stringId)) }
+        if (myTask) {
+            def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
+            setData("invoice_panel_target", orderCase, [
+                "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
+            ])
+        }
+    }
+}
+```
+
+**Invoice approval task must be permanently open (read arc):**
+
+```xml
+<place><id>p_approval</id><tokens>0</tokens><static>false</static></place>
+<!-- Token placed by register transition after finish -->
+<arc><id>a_reg</id><type>regular</type><sourceId>register</sourceId><destinationId>p_approval</destinationId><multiplicity>1</multiplicity></arc>
+<!-- Read arc — invoice_approval task stays alive for embedding -->
+<arc><id>a_read</id><type>read</type><sourceId>p_approval</sourceId><destinationId>invoice_approval</destinationId><multiplicity>1</multiplicity></arc>
+```
+
+> ⚠️ **NEVER use trigger field + UUID + reactive data event for cross-process taskRef updates.** The pattern `setData(transition, case, ["refresh_trigger": UUID])` followed by a `set` event that runs `findTasks + findCase` loop has two failure modes: (1) silent failure if target transition is inactive, (2) N+1 queries. Use IPC-0 instead.
+
+---
+
 ### 6.1 Spawning a Child Process
 
 ```groovy
@@ -4630,63 +4699,47 @@ change pending_count  value { pending  as java.lang.Double }
 
 ### 6.8 Reactive Cross-Process Pattern (Child Writes → Parent Reacts)
 
-The most powerful inter-process pattern combines `setData` with a `data event type="set"` in the parent process. When a child process writes a value into a parent field via `setData`, the parent's `set` event fires automatically — enabling the parent to react without polling.
+> ⚠️ **For taskRef embedding use IPC-0 (§6.0) instead of this pattern.** The trigger field + `set` event approach described here works for simple field updates but is unreliable for taskRef panel embedding — `setData` silently fails if the target transition is not active, and the `findTasks + findCase` loop causes N+1 queries. Use IPC-0 for all cross-process taskRef updates.
 
-**How the three-step chain works:**
+This pattern is still valid for **simple field updates** — when a child process needs to write a scalar value (text, number, date) back to a parent field and trigger a reaction in the parent.
+
+**How the chain works:**
 
 ```
-1. Child finishes a task (e.g. Register Invoice)
-       ↓  finish post action calls setData on parent's "new_invoice_id" field
-2. Parent's "new_invoice_id" data event set fires automatically
-       ↓  updates children_invoice_cases list and refreshes taskRef
-3. Parent's taskRef field (invoice_approvals) now shows the new child task embedded
+1. Child finishes a task
+       ↓  finish post calls setData on parent field
+2. Parent's data event set fires automatically
+       ↓  parent reacts (updates a counter, sets a status, etc.)
 ```
 
-**Step 1 — Child writes to parent field (invoice.xml, Register Invoice finish post):**
+**Child writes to parent field:**
 
 ```groovy
-invoice_id: f.invoice_id,
-parent_order_id: f.parent_order_id;
-
-// Find the parent case by ID (stored in parent_order_id field of this invoice)
-def parent_order_case = findCase({ it._id.eq(parent_order_id.value) })
-
-// Write this invoice's ID into the parent's "new_invoice_id" field via shorthand setData
-setData("t1", parent_order_case, ["new_invoice_id": ["value": invoice_id.value, "type": "text"]])
-```
-
-> The shorthand `setData("transition_id", caseObject, map)` is used here — the engine resolves the task from the given case automatically.
-
-**Step 2 — Parent reacts to the write (order.xml, data event set on new_invoice_id):**
-
-```groovy
-invoice_approvals: f.invoice_approvals,
-children_invoice_cases: f.children_invoice_cases,
-new_invoice_id: f.new_invoice_id;
-
-// Add to tracked list only if not already present
-if (new_invoice_id.value !in (children_invoice_cases.value ?: [])) {
-   change children_invoice_cases value { (children_invoice_cases.value ?: []) + new_invoice_id.value }
-}
-
-// Refresh the taskRef to show all child invoice approval tasks
-change invoice_approvals value {
-   findTasks { it.caseId.in(children_invoice_cases.value).and(it.transitionId.eq("t2")) }
-           ?.collect { it.stringId }
+parent_id: f.parent_id;
+def parentCase = findCase { it._id.eq(parent_id.value) }
+if (parentCase) {
+    setData("some_open_transition", parentCase, [
+        "counter": ["value": 1, "type": "number"]
+    ])
 }
 ```
 
-**Step 3 — Parent dynamically populates the options dropdown in child (invoice.xml, Register Invoice assign pre):**
-
-When the child process opens its registration task, it can query the parent process in real time to populate a selection field with all available parent cases:
+**Parent reacts via data event set:**
 
 ```groovy
-parent_order_id: f.parent_order_id;
+// data field "counter" set event post
+counter: f.counter, status: f.status;
+change status value { "Updated — count: " + counter.value }
+```
 
-def orders = findCases { it.processIdentifier.eq("order") }
-        .collectEntries { [(it.stringId): "Order: " + it.stringId] }
+**Populating a dropdown from parent process cases (assign pre):**
 
-change parent_order_id options { orders }
+```groovy
+parent_id: f.parent_id;
+def parents = findCases { it.processIdentifier.eq(workspace + "parent_process") }
+    .findAll { c -> (c.activePlaces?.get("p_open") ?: 0) > 0 }
+    .collectEntries { [(it.stringId): it.title ?: it.stringId] }
+change parent_id options { parents }
 ```
 
 > This runs in `assign pre` (before the task form opens) so the dropdown is fresh every time the task is opened.

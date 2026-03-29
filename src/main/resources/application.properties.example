@@ -42,6 +42,11 @@ gemini.max-output-tokens=65536
 # 0 = disabled (faster/cheaper), -1 = auto, >0 = token budget
 gemini.thinking-budget=0
 
+#  Claude thinking
+claude.thinking.enabled=false
+claude.thinking.budget=1000
+
+
 #  RAG tuning
 rag.top-k=14
 # Guide sections always included regardless of similarity score (comma-separated prefixes)
