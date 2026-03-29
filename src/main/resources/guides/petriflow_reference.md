@@ -45,7 +45,12 @@ The correct child element is `<name>textarea</name>`, `<name>preview</name>`, `<
 
 ## BEHAVIOR
 
-Read the user's message and choose one of two paths:
+Read the user's message and **first determine intent**:
+
+**Path 0 — Conversational / question** (user asks how something works, asks for explanation, asks about a concept, reports an error, or is chatting about a process without explicitly requesting generation):
+- Respond conversationally. Answer the question, explain the concept, or discuss the issue.
+- Do NOT offer Option A/B. Do NOT generate XML. Do NOT ask clarifying questions.
+- Signals: message contains "?", "how", "why", "what does", "can you explain", "is it possible", "what happens", "why does", "how does", "tell me", "what is", error messages, or is clearly a follow-up discussion about an existing process.
 
 **Path 1 — Not fully specified** (vague, partial, or missing roles/branching/access):
 - Offer two options:
@@ -298,7 +303,7 @@ async.run {
 ```groovy
 // Date arithmetic
 def days = java.time.temporal.ChronoUnit.DAYS.between(
-    start.value as java.time.LocalDate, end.value as java.time.LocalDate)
+        start.value as java.time.LocalDate, end.value as java.time.LocalDate)
 // Business days deadline
 def date = request_date.value as java.time.LocalDate
 def added = 0
@@ -328,7 +333,16 @@ workflowService.deleteCase(c.stringId)
 changeCaseProperty("title").about { "New Title" }
 changeCaseProperty("color").about { "green" }     // red|orange|yellow|green|teal|cyan|blue|indigo|purple|pink|brown|grey
 
-// Task
+// ⚠️ QUERYDSL LIMITATION — NEVER filter by dataSet field values inside findCases/findTasks query blocks.
+// it.dataSet.get("field").value.eq(...) and it.dataSet.get("field").contains(...) do NOT work — throws MissingPropertyException.
+// Valid predicates: processIdentifier, title, _id, stringId, caseId, transitionId, author, color, creationDate.
+// To filter by field value: load all cases first, then filter in Groovy with findAll:
+//
+//   ❌ findCases { it.processIdentifier.eq("proc").and(it.dataSet.get("status").value.eq("Done")) }
+//   ✅ findCases { it.processIdentifier.eq("proc") }
+//          .findAll { c -> c.dataSet?.get("status")?.value == "Done" }
+
+// Task — single
 def t  = findTask  { it.transitionId.eq("id").and(it.caseId.eq(useCase.stringId)) }
 def ts = findTasks { it.caseId.in(caseRefField.value).and(it.transitionId.eq("t2")) }
 def tid = newCase.tasks.find { it.transition == "t1" }?.task  // first task of new case
@@ -338,6 +352,21 @@ assignTask(task, userService.loggedOrSystem)
 finishTask("transition_id")
 finishTask(task)
 cancelTask(taskObj)
+
+// Task — plural (prefer over .each loops — more efficient)
+def tasks = findTasks { it.transitionId.eq("review").and(it.caseId.in(caseIds)) }
+assignTasks(tasks)                            // assign list to current user
+assignTasks(tasks, userService.loggedOrSystem)
+finishTasks(tasks)
+finishTasks(tasks, userService.loggedOrSystem)
+cancelTasks(tasks)
+cancelTasks(tasks, userService.loggedOrSystem)
+
+// getData — read all field values from a task (returns Map<String,Field>)
+def task = findTask { it.transitionId.eq("edit_limit").and(it.caseId.eq(useCase.stringId)) }
+def data = getData(task)
+change my_field value { data["remote_field"].value }
+// also: getData(transitionObject) or getData("transitionId", caseObject)
 
 // setData
 setData(task, [field: [value: "v", type: "text"]])
@@ -352,10 +381,10 @@ generatePdf("transition_id", "file_field_id")
 
 // Populate options from cases of another process
 def opts = findCases { it.processIdentifier.eq(workspace + "order") }
-    .collectEntries { [(it.stringId): "Order: " + it.stringId] }
+        .collectEntries { [(it.stringId): "Order: " + it.stringId] }
 change my_field options { opts }
 
-// Batch finish all tasks in taskRef list
+// Batch finish all tasks in taskRef list (manual loop with null-check)
 taskref: f.taskref;
 taskref.value.each { id -> def t = findTask({ it._id.eq(id) }); if (t) finishTask(t) }
 ```
@@ -501,7 +530,7 @@ Always-accessible status → Detail task + read arc (Pattern 16)
 <data type="number"><id>go_approve</id><title>Go Approve</title><init>0</init></data>
 <data type="number"><id>go_reject</id><title>Go Reject</title><init>0</init></data>
 <data type="enumeration_map"><id>decision</id><title>Decision</title>
-  <options><option key="approve">Approve</option><option key="reject">Reject</option></options>
+<options><option key="approve">Approve</option><option key="reject">Reject</option></options>
 </data>
 <place><id>approved</id><x>880</x><y>112</y><label>Approved</label><tokens>0</tokens><static>false</static></place>
 <place><id>rejected</id><x>880</x><y>304</y><label>Rejected</label><tokens>0</tokens><static>false</static></place>
@@ -585,10 +614,10 @@ Each review branch has routing number fields + variable arcs. Apply Pattern 2 ro
 ```xml
 <data type="number"><id>legal_approve</id><title>Legal Approve</title><init>0</init></data>
 <data type="number"><id>legal_reject</id><title>Legal Reject</title><init>0</init></data>
-<!-- same for fin_approve, fin_reject -->
+        <!-- same for fin_approve, fin_reject -->
 <arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>legal_done</destinationId><multiplicity>0</multiplicity><reference>legal_approve</reference></arc>
 <arc><id>arc_lr</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>rejected</destinationId>  <multiplicity>0</multiplicity><reference>legal_reject</reference></arc>
-<!-- same arcs for review_finance → fin_approve/fin_reject -->
+        <!-- same arcs for review_finance → fin_approve/fin_reject -->
 ```
 
 > ⚠️ If either branch rejects, its token goes to `rejected` — other branch token gets stuck in `join`. Expected: rejection terminates immediately.
@@ -641,12 +670,12 @@ else                             { change toA value { 0 }; change toB value { 1 
 <data type="number"><id>from_legal</id>   <title>From Legal</title>   <init>1</init></data>
 <data type="number"><id>from_finance</id> <title>From Finance</title> <init>1</init></data>
 <data type="multichoice_map"><id>departments</id><title>Departments</title>
-  <options><option key="legal">Legal</option><option key="finance">Finance</option></options>
+<options><option key="legal">Legal</option><option key="finance">Finance</option></options>
 </data>
-<!-- OR-split arcs -->
+        <!-- OR-split arcs -->
 <arc><id>a_vl</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_legal_in</destinationId>  <multiplicity>0</multiplicity><reference>to_legal</reference></arc>
 <arc><id>a_vf</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_finance_in</destinationId><multiplicity>0</multiplicity><reference>to_finance</reference></arc>
-<!-- OR-join incoming variable arcs -->
+        <!-- OR-join incoming variable arcs -->
 <arc><id>a_jl</id><type>regular</type><sourceId>p_legal_out</sourceId>  <destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_legal</reference></arc>
 <arc><id>a_jf</id><type>regular</type><sourceId>p_finance_out</sourceId><destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_finance</reference></arc>
 ```
@@ -669,12 +698,12 @@ Use when N branches is dynamic. Pre-load `go_count` tokens into merge place; eac
 ```xml
 <data type="number"><id>go_count</id><title>Branch Count</title><init>0</init></data>
 <data type="number"><id>to_a</id><title>To A</title><init>0</init></data>
-<!-- OR-split + pre-load -->
+        <!-- OR-split + pre-load -->
 <arc><id>a_ta</id>   <type>regular</type><sourceId>t_register</sourceId><destinationId>p_a</destinationId>    <multiplicity>0</multiplicity><reference>to_a</reference></arc>
 <arc><id>a_pre</id>  <type>regular</type><sourceId>t_register</sourceId><destinationId>p_merge</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
-<!-- Each branch task → merge -->
+        <!-- Each branch task → merge -->
 <arc><id>a_am</id>   <type>regular</type><sourceId>task_a</sourceId>   <destinationId>p_merge</destinationId><multiplicity>1</multiplicity></arc>
-<!-- join -->
+        <!-- join -->
 <arc><id>a_mf</id>   <type>regular</type><sourceId>p_merge</sourceId>  <destinationId>t_final</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
 ```
 
@@ -770,7 +799,7 @@ def current = (vote_count.value as Integer) ?: 0
 change vote_count value { (current + 1) as Double }
 if (current + 1 >= 2) {
   findTasks { it.caseId.eq(useCase.stringId).and(it.transitionId.in(["review_a","review_b","review_c"])) }
-    .each { t -> cancelTask(t) }
+          .each { t -> cancelTask(t) }
 }
 ```
 
@@ -825,7 +854,7 @@ Both system tasks share `p0` — only the one fired by action consumes the token
 <transition><id>route_to_legal</id><x>496</x><y>112</y><label>To Legal</label>
   <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 <transition><id>route_to_pr</id><x>496</x><y>304</y><label>To PR</label>
-  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 ```
 
 ```groovy
@@ -847,12 +876,12 @@ async.run {
 ```xml
 <data type="taskRef"><id>form_ref</id><title/><init>form_task</init></data>
 <transition><id>form_task</id><x>304</x><y>16</y><label>Form</label>
-  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-  <dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
-    <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
-      <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
-    </dataRef>
-  </dataGroup>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+<dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
+  <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
+    <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
+  </dataRef>
+</dataGroup>
 </transition>
 <place><id>p_form</id><x>112</x><y>16</y><label>Form</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_form</id><type>read</type><sourceId>p_form</sourceId><destinationId>form_task</destinationId><multiplicity>1</multiplicity></arc>
@@ -920,7 +949,7 @@ Use when a task must stay open indefinitely — a dynamic list, a dashboard, or 
 ```xml
 <place><id>p_list</id><x>112</x><y>208</y><label>List</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_read</id><type>read</type><sourceId>p_list</sourceId><destinationId>t_list</destinationId><multiplicity>1</multiplicity></arc>
-<!-- NO outgoing arc from t_list -->
+        <!-- NO outgoing arc from t_list -->
 ```
 
 > ⚠️ **Never pair a regular arc with a read arc on a permanently open task.**
@@ -945,6 +974,42 @@ change item_tasks value { (item_tasks.value ?: []) + tid }
 ## Inter-Process Communication
 
 > **Each process is a completely isolated namespace.** Roles, fields, transitions, and places from one process are invisible to all others — they cannot be referenced in XML from another process. Cross-process interaction happens exclusively through action code (`findCase`, `findTask`, `setData`, `assignTask`, `finishTask`). When generating a multi-process application, always produce each process as a fully independent `<document>` with its own complete set of roles, fields, and structure. Never reference a role ID, field ID, or transition ID from another process in XML.
+
+### IPC-0 — Cross-process taskRef update via permanently alive system task
+
+The most reliable way to embed tasks from Process B into a `taskRef` field in Process A.
+
+**Setup in Process A (Order):** a system task on a read arc, token arrives when case reaches open state:
+```xml
+<arc><id>a1</id><type>regular</type><sourceId>t_approve</sourceId><destinationId>p_panel</destinationId><multiplicity>0</multiplicity><reference>go_approve</reference></arc>
+<arc><id>a2</id><type>read</type><sourceId>p_panel</sourceId><destinationId>t_invoice_panel</destinationId><multiplicity>1</multiplicity></arc>
+<!-- t_invoice_panel: system role, no dataGroup — only a setData target -->
+```
+
+**Process B (Invoice) appends its task ID to Process A's taskRef:**
+```groovy
+// t_notify finish post
+parent_order_id: f.parent_order_id;
+def orderCase = findCase { it._id.eq(parent_order_id.value) }
+if (orderCase) {
+    def myTask = findTask { it.transitionId.eq("t_invoice_approval").and(it.caseId.eq(useCase.stringId)) }
+    if (myTask) {
+        def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
+        setData("t_invoice_panel", orderCase, [
+            "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
+        ])
+    }
+}
+```
+
+**Invoice approval task must be permanently open (read arc) so it stays embeddable:**
+```xml
+<arc><id>a3</id><type>read</type><sourceId>p_approval</sourceId><destinationId>t_invoice_approval</destinationId><multiplicity>1</multiplicity></arc>
+```
+
+> ⚠️ Do NOT use trigger field + UUID pattern for cross-process taskRef updates — it relies on QueryDSL dataSet filtering which fails at runtime. Do NOT call `setData` via a human task transition ID — human tasks may not be active. Always target a permanently alive **system-role** task.
+
+---
 
 ### IPC-1 — Parent creates child, gets first task immediately
 
@@ -1084,21 +1149,21 @@ change city options { result.collectEntries { [(it.code): it.name] } }
 ```groovy
 api_key: f.api_key, prompt: f.prompt, result: f.result;
 async.run {
-   def conn = (java.net.HttpURLConnection) new java.net.URL("https://api.openai.com/v1/chat/completions").openConnection()
-   conn.setRequestMethod("POST")
-   conn.setRequestProperty("Content-Type", "application/json")
-   conn.setRequestProperty("Authorization", "Bearer ${api_key.value}")
-   conn.setDoOutput(true); conn.setConnectTimeout(15_000); conn.setReadTimeout(60_000)
-   conn.outputStream.write(groovy.json.JsonOutput.toJson([
-           model: "gpt-4o-mini", messages: [[role: "user", content: prompt.value ?: ""]]
-   ]).getBytes("UTF-8"))
-   def body = ""
-   try { body = conn.inputStream.getText("UTF-8") }
-   catch (e) { body = conn.errorStream?.getText("UTF-8") ?: '{"error":"unreachable"}' }
-   def content = new groovy.json.JsonSlurper().parseText(body)?.choices?.getAt(0)?.message?.content ?: "{}"
-   def normalized = content.replaceAll('(?m)^```(?:json)?\\s*','').replaceAll('(?m)^```\\s*$','').trim()
-   def t = findTask { it.transitionId.eq("result_task").and(it.caseId.eq(useCase.stringId)) }
-   if (t) setData(t, [result: [value: normalized, type: "text"]])
+  def conn = (java.net.HttpURLConnection) new java.net.URL("https://api.openai.com/v1/chat/completions").openConnection()
+  conn.setRequestMethod("POST")
+  conn.setRequestProperty("Content-Type", "application/json")
+  conn.setRequestProperty("Authorization", "Bearer ${api_key.value}")
+  conn.setDoOutput(true); conn.setConnectTimeout(15_000); conn.setReadTimeout(60_000)
+  conn.outputStream.write(groovy.json.JsonOutput.toJson([
+          model: "gpt-4o-mini", messages: [[role: "user", content: prompt.value ?: ""]]
+  ]).getBytes("UTF-8"))
+  def body = ""
+  try { body = conn.inputStream.getText("UTF-8") }
+  catch (e) { body = conn.errorStream?.getText("UTF-8") ?: '{"error":"unreachable"}' }
+  def content = new groovy.json.JsonSlurper().parseText(body)?.choices?.getAt(0)?.message?.content ?: "{}"
+  def normalized = content.replaceAll('(?m)^```(?:json)?\\s*','').replaceAll('(?m)^```\\s*$','').trim()
+  def t = findTask { it.transitionId.eq("result_task").and(it.caseId.eq(useCase.stringId)) }
+  if (t) setData(t, [result: [value: normalized, type: "text"]])
 }
 ```
 

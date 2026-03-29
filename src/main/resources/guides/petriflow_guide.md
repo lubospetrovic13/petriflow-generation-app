@@ -2045,6 +2045,35 @@ updateMultichoiceWithCurrentNode(uri_field, uriNode)
 
 #### Case / Workflow operations
 
+> ⚠️ **QueryDSL limitation — never filter by `dataSet` field values inside `findCases`/`findTasks` query blocks.**
+>
+> The predicates `it.dataSet.get("field").value.eq(...)` and `it.dataSet.get("field").contains(...)` look valid but throw a `MissingPropertyException` at runtime. QueryDSL only supports filtering on native Case/Task properties: `processIdentifier`, `title`, `_id`, `stringId`, `caseId`, `transitionId`, `author`, `color`, `creationDate`.
+>
+> **To filter by a data field value, always load cases first, then filter in Groovy:**
+>
+> ```groovy
+> // ❌ Does NOT work — throws MissingPropertyException
+> findCases { it.processIdentifier.eq("order").and(it.dataSet.get("status").value.eq("Approved")) }
+>
+> // ✅ Correct — filter in Groovy after loading
+> findCases { it.processIdentifier.eq(workspace + "order") }
+>     .findAll { c -> c.dataSet?.get("status")?.value == "Approved and Open" }
+> ```
+>
+> The same applies to `findTasks` — never use `it.dataSet` inside the query predicate. If you need to filter invoice tasks by which order they belong to, load all tasks of that transition and then filter by reading `findCase` for each:
+>
+> ```groovy
+> // ❌ Does NOT work
+> findTasks { it.transitionId.eq("invoice_approval").and(it.dataSet.get("parent_order_id").eq(useCase.stringId)) }
+>
+> // ✅ Correct
+> findTasks { it.transitionId.eq("invoice_approval") }
+>     .findAll { t ->
+>         def inv = findCase { it._id.eq(t.caseId) }
+>         inv?.dataSet?.get("parent_order_id")?.value == useCase.stringId
+>     }
+> ```
+
 ```groovy
 def oneCase = findCase  { qCase -> qCase.processIdentifier.eq("my_process") }
 def cases   = findCases { qCase -> qCase.processIdentifier.eq("my_process") }
@@ -2122,21 +2151,61 @@ def taskId = getTaskId("approve_request", useCase)
 execute("approve_request").with { [field_id: [value: "Done", type: "text"]] }
 ```
 
-**Batch finish — finish all tasks in a list (e.g. closing all child tasks at once):**
+**Plural batch operations — assign, finish, or cancel multiple tasks in one call:**
+
+```groovy
+// assignTasks — assign a list of task objects to a user
+def tasks = findTasks { it.transitionId.eq("review").and(it.caseId.in(caseIds)) }
+assignTasks(tasks)                                    // assign to current user
+assignTasks(tasks, userService.loggedOrSystem)        // assign to specific user
+
+// finishTasks — finish a list of task objects
+def tasks = findTasks { it.transitionId.eq("review").and(it.caseId.in(caseIds)) }
+finishTasks(tasks)
+finishTasks(tasks, userService.loggedOrSystem)
+
+// cancelTasks — cancel a list of task objects
+def tasks = findTasks { it.transitionId.eq("review").and(it.caseId.in(caseIds)) }
+cancelTasks(tasks)
+cancelTasks(tasks, userService.loggedOrSystem)
+```
+
+Prefer plural variants over `.each { finishTask(it) }` loops — they are more efficient and atomic.
+
+**`getData` — read all field values from a task:**
+
+```groovy
+// By task object
+def task = findTask { it.transitionId.eq("edit_limit").and(it.caseId.eq(useCase.stringId)) }
+def data = getData(task)
+change my_field value { data["remote_field"].value }
+
+// By transition object
+view_limit: t.view_limit;
+def data = getData(view_limit)
+change my_field value { data["remote_field"].value }
+
+// By transitionId + case
+def otherCase = findCase { it.title.eq("Limits") }
+def data = getData("view_limit", otherCase)
+change my_field value { data["remote_limit"].value }
+```
+
+`getData` returns `Map<String, Field>` — keys are field IDs, values are field objects with `.value`. Useful for reading data from another task or case without iterating `dataSet` manually.
+
+**Batch finish via taskRef list (manual loop when you need null-checks):**
 
 ```groovy
 taskref_field: f.taskref_field;
 taskref_field.value.each { taskStringId ->
-    def t = findTask({ it._id.eq(taskStringId) })
-    if (t) finishTask(t)
+   def t = findTask({ it._id.eq(taskStringId) })
+   if (t) finishTask(t)
 }
 ```
 
-- `taskRef.value` is a `List<String>` of task string IDs. Iterate it to act on each task individually.
+- `taskRef.value` is a `List<String>` of task string IDs.
 - Use `.size()` to count active tasks: `taskref_field.value.size()`
-- Guard each `findTask` with a null-check before calling `finishTask` — a task may have already been finished or cancelled.
-
-
+- Guard each `findTask` with a null-check before calling `finishTask`.
 
 #### Role operations
 
@@ -2352,8 +2421,8 @@ start_date: f.start_date,
 end_date: f.end_date,
 days: f.days;
 def daysDiff = java.time.temporal.ChronoUnit.DAYS.between(
-    start_date.value as java.time.LocalDate,
-    end_date.value as java.time.LocalDate
+        start_date.value as java.time.LocalDate,
+        end_date.value as java.time.LocalDate
 )
 change days value { daysDiff as Double }
 ```
@@ -2579,8 +2648,8 @@ priority: f.priority;
 
 def limitHours = priority.value == "urgent" ? 4 : 24
 def elapsed = java.time.temporal.ChronoUnit.HOURS.between(
-    assigned_at.value as java.time.LocalDateTime,
-    java.time.LocalDateTime.now()
+        assigned_at.value as java.time.LocalDateTime,
+        java.time.LocalDateTime.now()
 )
 
 if (elapsed > limitHours) {
@@ -2884,24 +2953,24 @@ go_approved: f.go_approved,
 go_rejected: f.go_rejected,
 status: f.status;
 if (decision.value == "approve") {
-    change go_approved value { 1 }
-    change go_rejected value { 0 }
-    change status value { "Approved" }
+   change go_approved value { 1 }
+   change go_rejected value { 0 }
+   change status value { "Approved" }
 } else {
-    change go_approved value { 0 }
-    change go_rejected value { 1 }
-    change status value { "Rejected" }
+   change go_approved value { 0 }
+   change go_rejected value { 1 }
+   change status value { "Rejected" }
 }
 ```
 
 ```xml
 <!-- Variable arcs from review transition — exactly one fires -->
 <arc><id>a_approved</id><type>regular</type>
-    <sourceId>t_review</sourceId><destinationId>p_approved</destinationId>
-    <multiplicity>0</multiplicity><reference>go_approved</reference></arc>
+   <sourceId>t_review</sourceId><destinationId>p_approved</destinationId>
+   <multiplicity>0</multiplicity><reference>go_approved</reference></arc>
 <arc><id>a_rejected</id><type>regular</type>
-    <sourceId>t_review</sourceId><destinationId>p_rejected</destinationId>
-    <multiplicity>0</multiplicity><reference>go_rejected</reference></arc>
+<sourceId>t_review</sourceId><destinationId>p_rejected</destinationId>
+<multiplicity>0</multiplicity><reference>go_rejected</reference></arc>
 ```
 
 #### Variant B — `async.run assignTask/finishTask` (preferred when next steps are system tasks)
@@ -2913,17 +2982,17 @@ The finish action explicitly fires the correct next task. No variable arcs neede
 decision: f.decision,
 status: f.status;
 if (decision.value == "approve") {
-    change status value { "Approved" }
-    async.run {
-        assignTask("t_notify_approved")
-        finishTask("t_notify_approved")
-    }
+   change status value { "Approved" }
+   async.run {
+      assignTask("t_notify_approved")
+      finishTask("t_notify_approved")
+   }
 } else {
-    change status value { "Rejected" }
-    async.run {
-        assignTask("t_notify_rejected")
-        finishTask("t_notify_rejected")
-    }
+   change status value { "Rejected" }
+   async.run {
+      assignTask("t_notify_rejected")
+      finishTask("t_notify_rejected")
+   }
 }
 ```
 
@@ -2935,13 +3004,13 @@ Use `event type="set"` on the decision `dataRef` to show/hide conditional fields
 
 ```xml
 <dataRef>
-    <id>decision</id>
-    <logic><behavior>editable</behavior><behavior>required</behavior></logic>
-    <layout>...</layout>
-    <event type="set">
-        <id>decision_set</id>
-        <actions phase="post">
-            <action id="N"><![CDATA[
+   <id>decision</id>
+   <logic><behavior>editable</behavior><behavior>required</behavior></logic>
+   <layout>...</layout>
+   <event type="set">
+      <id>decision_set</id>
+      <actions phase="post">
+         <action id="N"><![CDATA[
             t_review: t.t_review,
             rejection_reason: f.rejection_reason,
             decision: f.decision;
@@ -2951,15 +3020,15 @@ Use `event type="set"` on the decision `dataRef` to show/hide conditional fields
                 make rejection_reason, hidden on t_review when { true }
             }
             ]]></action>
-        </actions>
-    </event>
+      </actions>
+   </event>
 </dataRef>
-<!-- rejection_reason starts hidden; revealed dynamically when "reject" is chosen -->
+        <!-- rejection_reason starts hidden; revealed dynamically when "reject" is chosen -->
 <dataRef>
-    <id>rejection_reason</id>
-    <logic><behavior>hidden</behavior></logic>
-    <layout>...</layout>
-    <component><name>textarea</name></component>
+<id>rejection_reason</id>
+<logic><behavior>hidden</behavior></logic>
+<layout>...</layout>
+<component><name>textarea</name></component>
 </dataRef>
 ```
 
@@ -3016,11 +3085,11 @@ All parallel branches must complete before the process continues. The split tran
 <role><id>system</id><title>System</title></role>
 
 <transition>
-  <id>split</id>
-  <x>304</x><y>208</y>
-  <label>Start Parallel Review</label>
-  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-  <!-- no dataGroup — system task -->
+<id>split</id>
+<x>304</x><y>208</y>
+<label>Start Parallel Review</label>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+<!-- no dataGroup — system task -->
 </transition>
 ```
 
@@ -3029,13 +3098,13 @@ All parallel branches must complete before the process continues. The split tran
 ```groovy
 // submit finish POST — fire the split system task
 async.run {
-  def t = findTask { qTask ->
-    qTask.transitionId.eq("split").and(qTask.caseId.eq(useCase.stringId))
-  }
-  if (t) {
-    assignTask(t, userService.loggedOrSystem)
-    finishTask(t, userService.loggedOrSystem)
-  }
+   def t = findTask { qTask ->
+      qTask.transitionId.eq("split").and(qTask.caseId.eq(useCase.stringId))
+   }
+   if (t) {
+      assignTask(t, userService.loggedOrSystem)
+      finishTask(t, userService.loggedOrSystem)
+   }
 }
 ```
 
@@ -3048,7 +3117,7 @@ async.run {
 <place><id>finance_done</id> <x>880</x><y>304</y><label>Finance Done</label>   <tokens>0</tokens><static>false</static></place>
 <place><id>join</id>         <x>1072</x><y>208</y><label>Both Done</label>     <tokens>0</tokens><static>false</static></place>
 
-<!-- split fires one token into EACH branch place simultaneously -->
+        <!-- split fires one token into EACH branch place simultaneously -->
 <arc><id>a_p0_split</id>     <type>regular</type> <sourceId>p0</sourceId>           <destinationId>split</destinationId>       <multiplicity>1</multiplicity></arc>
 <arc><id>a_split_legal</id>  <type>regular</type> <sourceId>split</sourceId>        <destinationId>legal_p</destinationId>     <multiplicity>1</multiplicity></arc>
 <arc><id>a_split_finance</id><type>regular</type> <sourceId>split</sourceId>        <destinationId>finance_p</destinationId>   <multiplicity>1</multiplicity></arc>
@@ -3057,7 +3126,7 @@ async.run {
 <arc><id>a_rev_ld</id>       <type>regular</type> <sourceId>review_legal</sourceId>   <destinationId>legal_done</destinationId>   <multiplicity>1</multiplicity></arc>
 <arc><id>a_rev_fd</id>       <type>regular</type> <sourceId>review_finance</sourceId> <destinationId>finance_done</destinationId> <multiplicity>1</multiplicity></arc>
 
-<!-- join collects one token per branch — finalize fires only when BOTH arrive (multiplicity=2) -->
+        <!-- join collects one token per branch — finalize fires only when BOTH arrive (multiplicity=2) -->
 <arc><id>a_ld_join</id>      <type>regular</type> <sourceId>legal_done</sourceId>   <destinationId>join</destinationId>        <multiplicity>1</multiplicity></arc>
 <arc><id>a_fd_join</id>      <type>regular</type> <sourceId>finance_done</sourceId> <destinationId>join</destinationId>        <multiplicity>1</multiplicity></arc>
 <arc><id>a_join_fin</id>     <type>regular</type> <sourceId>join</sourceId>         <destinationId>finalize</destinationId>    <multiplicity>2</multiplicity></arc>
@@ -3253,15 +3322,15 @@ change go_count value { count as Double }
 <arc><id>a_to_b</id><type>regular</type><sourceId>selector</sourceId><destinationId>p_b</destinationId><multiplicity>0</multiplicity><reference>go_dept_b</reference></arc>
 <arc><id>a_to_c</id><type>regular</type><sourceId>selector</sourceId><destinationId>p_c</destinationId><multiplicity>0</multiplicity><reference>go_dept_c</reference></arc>
 
-<!-- Pre-load go_count tokens into the merge place -->
+        <!-- Pre-load go_count tokens into the merge place -->
 <arc><id>a_preload</id><type>regular</type><sourceId>selector</sourceId><destinationId>p_before_final</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
 
-<!-- Each dept task deposits one token into the merge place when done -->
+        <!-- Each dept task deposits one token into the merge place when done -->
 <arc><id>a_a_done</id><type>regular</type><sourceId>task_dept_a</sourceId><destinationId>p_before_final</destinationId><multiplicity>1</multiplicity></arc>
 <arc><id>a_b_done</id><type>regular</type><sourceId>task_dept_b</sourceId><destinationId>p_before_final</destinationId><multiplicity>1</multiplicity></arc>
 <arc><id>a_c_done</id><type>regular</type><sourceId>task_dept_c</sourceId><destinationId>p_before_final</destinationId><multiplicity>1</multiplicity></arc>
 
-<!-- Variable join: final_task fires only when go_count tokens are present -->
+        <!-- Variable join: final_task fires only when go_count tokens are present -->
 <arc><id>a_join</id><type>regular</type><sourceId>p_before_final</sourceId><destinationId>final_task</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
 ```
 
@@ -3308,19 +3377,19 @@ decision: f.decision,
 status: f.status;
 
 if (decision.value == "approve") {
-    change approve value { 1 }
-    change remake value { 0 }
-    change status value { "Approved" }
-    changeCaseProperty("color").about { "green" }
+   change approve value { 1 }
+   change remake value { 0 }
+   change status value { "Approved" }
+   changeCaseProperty("color").about { "green" }
 } else {
-    change approve value { 0 }
-    change remake value { 1 }
-    change status value { "Rejected" }
-    changeCaseProperty("color").about { "red" }
-    // Hide rejection reason on review task, show it on submit task for next round
-    make rejection_reason, hidden on t_review when { true }
-    make rejection_reason, visible on t_submit when { true }
-    change revision_count value { revision_count.value + 1 }
+   change approve value { 0 }
+   change remake value { 1 }
+   change status value { "Rejected" }
+   changeCaseProperty("color").about { "red" }
+   // Hide rejection reason on review task, show it on submit task for next round
+   make rejection_reason, hidden on t_review when { true }
+   make rejection_reason, visible on t_submit when { true }
+   change revision_count value { revision_count.value + 1 }
 }
 ```
 
@@ -3330,13 +3399,13 @@ The `event type="set"` fires whenever the user changes the field value — befor
 
 ```xml
 <dataRef>
-    <id>decision</id>
-    <logic><behavior>editable</behavior><behavior>required</behavior></logic>
-    <layout>...</layout>
-    <event type="set">
-        <id>decision_set</id>
-        <actions phase="post">
-            <action id="N"><![CDATA[
+   <id>decision</id>
+   <logic><behavior>editable</behavior><behavior>required</behavior></logic>
+   <layout>...</layout>
+   <event type="set">
+      <id>decision_set</id>
+      <actions phase="post">
+         <action id="N"><![CDATA[
             t_review: t.t_review,
             rejection_reason: f.rejection_reason,
             decision: f.decision;
@@ -3346,8 +3415,8 @@ The `event type="set"` fires whenever the user changes the field value — befor
                 make rejection_reason, hidden on t_review when { true }
             }
             ]]></action>
-        </actions>
-    </event>
+      </actions>
+   </event>
 </dataRef>
 ```
 
@@ -3356,15 +3425,15 @@ The `event type="set"` fires whenever the user changes the field value — befor
 ```xml
 <!-- go_approve=1 → token moves to done place -->
 <arc><id>a_approve</id><type>regular</type>
-    <sourceId>t_review</sourceId><destinationId>p_approved</destinationId>
-    <multiplicity>0</multiplicity><reference>approve</reference></arc>
+   <sourceId>t_review</sourceId><destinationId>p_approved</destinationId>
+   <multiplicity>0</multiplicity><reference>approve</reference></arc>
 
-<!-- go_remake=1 → token loops back to start so submitter can resubmit -->
+        <!-- go_remake=1 → token loops back to start so submitter can resubmit -->
 <arc><id>a_remake</id><type>regular</type>
-    <sourceId>t_review</sourceId><destinationId>start</destinationId>
-    <multiplicity>0</multiplicity><reference>remake</reference>
-    <breakpoint><x>432</x><y>368</y></breakpoint>
-    <breakpoint><x>208</x><y>368</y></breakpoint>
+<sourceId>t_review</sourceId><destinationId>start</destinationId>
+<multiplicity>0</multiplicity><reference>remake</reference>
+<breakpoint><x>432</x><y>368</y></breakpoint>
+<breakpoint><x>208</x><y>368</y></breakpoint>
 </arc>
 ```
 
@@ -3393,13 +3462,13 @@ A **time trigger** causes a system transition to fire automatically after a spec
 
 ```xml
 <transition>
-    <id>t_sla_check</id>
-    <label>SLA Check</label>
-    <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-    <trigger type="time">
-        <delay>PT24H</delay>
-    </trigger>
-    <!-- no dataGroup — system task -->
+   <id>t_sla_check</id>
+   <label>SLA Check</label>
+   <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+   <trigger type="time">
+      <delay>PT24H</delay>
+   </trigger>
+   <!-- no dataGroup — system task -->
 </transition>
 ```
 
@@ -3431,9 +3500,9 @@ go_reviewed: f.go_reviewed,
 go_escalated: f.go_escalated,
 status: f.status;
 if ((go_reviewed.value as Integer) == 0) {
-    change go_escalated value { 1 }
-    change status value { "SLA breached — escalated" }
-    changeCaseProperty("color").about { "red" }
+   change go_escalated value { 1 }
+   change status value { "SLA breached — escalated" }
+   changeCaseProperty("color").about { "red" }
 }
 // If go_reviewed == 1, go_escalated stays 0 — variable arc fires no token
 ```
@@ -3472,27 +3541,27 @@ go_dead: f.go_dead,
 status: f.status;
 def flag = (first_done.value as Integer) ?: 0
 if (flag == 0) {
-    change first_done value { 1 }
-    change go_final value { 1 }
-    change go_dead value { 0 }
-    change status value { "Done — first reviewer finished" }
+   change first_done value { 1 }
+   change go_final value { 1 }
+   change go_dead value { 0 }
+   change status value { "Done — first reviewer finished" }
 } else {
-    // Second (or later) reviewer — absorb silently
-    change go_final value { 0 }
-    change go_dead value { 1 }
+   // Second (or later) reviewer — absorb silently
+   change go_final value { 0 }
+   change go_dead value { 1 }
 }
 ```
 
 ```xml
 <!-- go_final=1 → token goes to merge place → enables final step -->
 <arc><id>a_to_merge</id><type>regular</type>
-    <sourceId>t_review_a</sourceId><destinationId>p_merge</destinationId>
-    <multiplicity>0</multiplicity><reference>go_final</reference></arc>
+   <sourceId>t_review_a</sourceId><destinationId>p_merge</destinationId>
+   <multiplicity>0</multiplicity><reference>go_final</reference></arc>
 
-<!-- go_dead=1 → token absorbed into dead-end place, no further effect -->
+        <!-- go_dead=1 → token absorbed into dead-end place, no further effect -->
 <arc><id>a_to_dead</id><type>regular</type>
-    <sourceId>t_review_a</sourceId><destinationId>p_dead</destinationId>
-    <multiplicity>0</multiplicity><reference>go_dead</reference></arc>
+<sourceId>t_review_a</sourceId><destinationId>p_dead</destinationId>
+<multiplicity>0</multiplicity><reference>go_dead</reference></arc>
 ```
 
 ```
@@ -3539,8 +3608,8 @@ For configurable quorum (e.g. set at case creation or by an admin), store the re
 ```xml
 <!-- quorum_required = number field set at case creation (e.g. 2) -->
 <arc><id>a_join</id><type>regular</type>
-    <sourceId>p_voted</sourceId><destinationId>t_finalize</destinationId>
-    <multiplicity>0</multiplicity><reference>quorum_required</reference></arc>
+   <sourceId>p_voted</sourceId><destinationId>t_finalize</destinationId>
+   <multiplicity>0</multiplicity><reference>quorum_required</reference></arc>
 ```
 
 Each voter sends 1 token to `p_voted`. When `p_voted` holds `quorum_required` tokens, `t_finalize` fires. This works for any N-of-M configuration set at runtime — no XML changes needed.
@@ -3913,67 +3982,67 @@ The simplest form: `<init>` contains a transition ID from the **same process**. 
 ```xml
 <!-- 1. taskRef field — init holds the form transition ID -->
 <data type="taskRef">
-    <id>shared_form</id>
-    <title>Shared Form Data</title>
-    <init>t_form</init>
+   <id>shared_form</id>
+   <title>Shared Form Data</title>
+   <init>t_form</init>
 </data>
 
-<!-- 2. Form task — system role, always-on via read arc -->
+        <!-- 2. Form task — system role, always-on via read arc -->
 <transition>
-    <id>t_form</id>
-    <x>208</x><y>16</y>
-    <label>Application Form</label>
-    <icon>description</icon>
-    <priority>1</priority>
-    <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-    <dataGroup>
-        <id>g_form</id><cols>1</cols><layout>grid</layout><title>Form</title>
-        <dataRef>
-            <id>applicant_name</id>
-            <logic><behavior>editable</behavior><behavior>required</behavior></logic>
-            <layout><x>0</x><y>0</y><rows>1</rows><cols>1</cols>
-                <template>material</template><appearance>outline</appearance></layout>
-        </dataRef>
-    </dataGroup>
+<id>t_form</id>
+<x>208</x><y>16</y>
+<label>Application Form</label>
+<icon>description</icon>
+<priority>1</priority>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+<dataGroup>
+   <id>g_form</id><cols>1</cols><layout>grid</layout><title>Form</title>
+   <dataRef>
+      <id>applicant_name</id>
+      <logic><behavior>editable</behavior><behavior>required</behavior></logic>
+      <layout><x>0</x><y>0</y><rows>1</rows><cols>1</cols>
+         <template>material</template><appearance>outline</appearance></layout>
+   </dataRef>
+</dataGroup>
 </transition>
 
-<!-- 3. Place with token=1 — keeps t_form permanently enabled -->
+        <!-- 3. Place with token=1 — keeps t_form permanently enabled -->
 <place>
-    <id>p_form</id><x>80</x><y>16</y>
-    <label>Form Always On</label>
-    <tokens>1</tokens><static>false</static>
+<id>p_form</id><x>80</x><y>16</y>
+<label>Form Always On</label>
+<tokens>1</tokens><static>false</static>
 </place>
 
-<!-- 4. Read arc — token never consumed, t_form stays enabled forever -->
+        <!-- 4. Read arc — token never consumed, t_form stays enabled forever -->
 <arc>
-    <id>a_form_read</id><type>read</type>
-    <sourceId>p_form</sourceId><destinationId>t_form</destinationId>
-    <multiplicity>1</multiplicity>
+<id>a_form_read</id><type>read</type>
+<sourceId>p_form</sourceId><destinationId>t_form</destinationId>
+<multiplicity>1</multiplicity>
 </arc>
 
-<!-- 5. Human task embeds the form: editable (submitter fills in), visible (reviewers see read-only) -->
+        <!-- 5. Human task embeds the form: editable (submitter fills in), visible (reviewers see read-only) -->
 <dataRef>
-    <id>shared_form</id>
-    <logic><behavior>editable</behavior></logic>  <!-- or visible for read-only -->
-    <layout><x>0</x><y>0</y><rows>1</rows><cols>1</cols>
-        <template>material</template><appearance>outline</appearance></layout>
+<id>shared_form</id>
+<logic><behavior>editable</behavior></logic>  <!-- or visible for read-only -->
+<layout><x>0</x><y>0</y><rows>1</rows><cols>1</cols>
+   <template>material</template><appearance>outline</appearance></layout>
 </dataRef>
 ```
 
 ```xml
 <!-- 6. Bootstrap t_form at case creation so the panel renders immediately -->
 <caseEvents>
-    <event type="create">
-        <id>on_create</id>
-        <actions phase="post">
-            <action id="1"><![CDATA[
+   <event type="create">
+      <id>on_create</id>
+      <actions phase="post">
+         <action id="1"><![CDATA[
             async.run {
                 assignTask("t_form")
                 finishTask("t_form")
             }
             ]]></action>
-        </actions>
-    </event>
+      </actions>
+   </event>
 </caseEvents>
 ```
 
@@ -4151,13 +4220,13 @@ Use this when a task must remain open indefinitely — never finishing, always e
 </place>
 
 <arc>
-   <id>arc_list_read</id>
-   <type>read</type>           <!-- read arc — token is never consumed -->
-   <sourceId>p_list</sourceId>
-   <destinationId>t_list</destinationId>
-   <multiplicity>1</multiplicity>
+<id>arc_list_read</id>
+<type>read</type>           <!-- read arc — token is never consumed -->
+<sourceId>p_list</sourceId>
+<destinationId>t_list</destinationId>
+<multiplicity>1</multiplicity>
 </arc>
-<!-- NO outgoing arc from t_list — it can never finish -->
+        <!-- NO outgoing arc from t_list — it can never finish -->
 ```
 
 The place starts with `tokens=1`. The read arc keeps `t_list` permanently enabled. Because there is no outgoing arc from `t_list`, the task has no way to fire — it stays open forever. This is intentional.
@@ -4735,7 +4804,7 @@ An empty `<component/>` or `<component></component>` on a data field definition 
 <component><name>textarea</name></component>
 <component><name>list</name></component>
 <component><name>divider</name></component>
-<!-- or omit <component> entirely if no override needed -->
+        <!-- or omit <component> entirely if no override needed -->
 ```
 
 ---

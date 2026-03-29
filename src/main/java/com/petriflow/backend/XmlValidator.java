@@ -118,11 +118,17 @@ public class XmlValidator {
         // 6. Check for self-reference in taskRef <init>
         errors.addAll(checkTaskRefSelfReference(xml));
 
-        // 7. Check for Place→Place arcs (C2 violation)
+        // 7. Check for <view>true</view> in roleRef (not valid in Petriflow)
+        errors.addAll(checkViewRoleRef(xml));
+
+        // 8. Check for Place→Place arcs (C2 violation)
         errors.addAll(checkPlaceToPlaceArcs(xml));
 
         // 8. Check for assignTask/finishTask on human tasks (C3 violation)
         errors.addAll(checkAssignTaskOnHumanTasks(xml));
+
+        // 9. Check for dataSet field filtering inside findCases/findTasks query blocks
+        errors.addAll(checkDataSetInQueryPredicate(xml));
 
         return errors;
     }
@@ -259,6 +265,19 @@ public class XmlValidator {
     }
 
     /**
+     * Check for <view>true</view> inside <roleRef><logic> — not valid in Petriflow.
+     * Only <perform>, <cancel>, <delegate> are valid logic elements.
+     */
+    private static List<String> checkViewRoleRef(String xml) {
+        List<String> errors = new ArrayList<>();
+        // Simple string check — <view> inside <logic> inside <roleRef>
+        if (xml.contains("<view>true</view>") || xml.contains("<view>false</view>")) {
+            errors.add("Found <view> element inside <roleRef><logic> — only <perform>, <cancel>, <delegate> are valid. Remove <view> entirely.");
+        }
+        return errors;
+    }
+
+    /**
      * Check for Place→Place arcs (C2 violation).
      * Collects all place IDs, then checks if any arc goes from a place directly to another place.
      */
@@ -338,6 +357,35 @@ public class XmlValidator {
         } catch (Exception e) {
             log.debug("Could not parse XML for assignTask-on-human-task check: {}", e.getMessage());
         }
+        return errors;
+    }
+
+
+    /**
+     * Check for dataSet field value filtering inside findCases/findTasks query blocks.
+     * it.dataSet.get("field").value.eq(...) and it.dataSet.get("field").contains(...)
+     * throw MissingPropertyException at runtime — only native Case/Task properties work in QueryDSL predicates.
+     */
+    private static List<String> checkDataSetInQueryPredicate(String xml) {
+        List<String> errors = new ArrayList<>();
+
+        // Simple approach: check if xml contains both a findCases/findTasks call AND it.dataSet in proximity.
+        // Extract all CDATA blocks and scan them line by line for co-occurrence.
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            // Check if this CDATA block contains findCases or findTasks with it.dataSet nearby
+            if ((block.contains("findCases") || block.contains("findTasks")) && block.contains("it.dataSet")) {
+                errors.add("Found it.dataSet used inside a findCases/findTasks query predicate - " +
+                        "QueryDSL does not support filtering by dataSet field values. " +
+                        "Load all cases/tasks first, then filter in Groovy: " +
+                        ".findAll { c -> c.dataSet?.get(fieldId)?.value == expectedValue }");
+                break;
+            }
+        }
+
         return errors;
     }
 
