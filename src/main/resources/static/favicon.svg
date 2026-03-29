@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Pink circle (bottom-left) -->
+  <circle cx="22" cy="42" r="20" fill="#e91e8c"/>
+  <!-- Blue rounded square (top-right) -->
+  <rect x="20" y="4" width="38" height="38" rx="9" ry="9" fill="#1e88e5"/>
+  <!-- White cutout circle (overlap area) -->
+  <circle cx="34" cy="36" r="13" fill="white"/>
+</svg>

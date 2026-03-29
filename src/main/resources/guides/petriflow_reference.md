@@ -45,7 +45,12 @@ The correct child element is `<name>textarea</name>`, `<name>preview</name>`, `<
 
 ## BEHAVIOR
 
-Read the user's message and choose one of two paths:
+Read the user's message and **first determine intent**:
+
+**Path 0 — Conversational / question** (user asks how something works, asks for explanation, asks about a concept, reports an error, or is chatting about a process without explicitly requesting generation):
+- Respond conversationally. Answer the question, explain the concept, or discuss the issue.
+- Do NOT offer Option A/B. Do NOT generate XML. Do NOT ask clarifying questions.
+- Signals: message contains "?", "how", "why", "what does", "can you explain", "is it possible", "what happens", "why does", "how does", "tell me", "what is", error messages, or is clearly a follow-up discussion about an existing process.
 
 **Path 1 — Not fully specified** (vague, partial, or missing roles/branching/access):
 - Offer two options:
@@ -298,7 +303,7 @@ async.run {
 ```groovy
 // Date arithmetic
 def days = java.time.temporal.ChronoUnit.DAYS.between(
-    start.value as java.time.LocalDate, end.value as java.time.LocalDate)
+        start.value as java.time.LocalDate, end.value as java.time.LocalDate)
 // Business days deadline
 def date = request_date.value as java.time.LocalDate
 def added = 0
@@ -324,11 +329,28 @@ def cs = findCases { it.processIdentifier.eq("process_id") }
 def c  = createCase("child_id", "Title", "blue")  // full
 def c  = createCase("child_id")                   // minimal
 def val = c.getFieldValue("field_id")             // alt to c.dataSet["field_id"]?.value
+
+// Check token state of a place on a case — use activePlaces, NOT getPlace() which does not exist
+def hasToken = (c.activePlaces?.get("p_open") ?: 0) > 0   // true if p_open has at least 1 token
+// Use this to filter cases by workflow state:
+def approvedOrders = findCases { it.processIdentifier.eq(workspace + "order_process") }
+        .findAll { c -> (c.activePlaces?.get("p_open") ?: 0) > 0 }
+
+// ❌ NEVER use c.getPlace("p_open") — this method does not exist on Case objects and always returns null
 workflowService.deleteCase(c.stringId)
 changeCaseProperty("title").about { "New Title" }
 changeCaseProperty("color").about { "green" }     // red|orange|yellow|green|teal|cyan|blue|indigo|purple|pink|brown|grey
 
-// Task
+// ⚠️ QUERYDSL LIMITATION — NEVER filter by dataSet field values inside findCases/findTasks query blocks.
+// it.dataSet.get("field").value.eq(...) and it.dataSet.get("field").contains(...) do NOT work — throws MissingPropertyException.
+// Valid predicates: processIdentifier, title, _id, stringId, caseId, transitionId, author, color, creationDate.
+// To filter by field value: load all cases first, then filter in Groovy with findAll:
+//
+//   ❌ findCases { it.processIdentifier.eq("proc").and(it.dataSet.get("status").value.eq("Done")) }
+//   ✅ findCases { it.processIdentifier.eq("proc") }
+//          .findAll { c -> c.dataSet?.get("status")?.value == "Done" }
+
+// Task — single
 def t  = findTask  { it.transitionId.eq("id").and(it.caseId.eq(useCase.stringId)) }
 def ts = findTasks { it.caseId.in(caseRefField.value).and(it.transitionId.eq("t2")) }
 def tid = newCase.tasks.find { it.transition == "t1" }?.task  // first task of new case
@@ -338,6 +360,21 @@ assignTask(task, userService.loggedOrSystem)
 finishTask("transition_id")
 finishTask(task)
 cancelTask(taskObj)
+
+// Task — plural (prefer over .each loops — more efficient)
+def tasks = findTasks { it.transitionId.eq("review").and(it.caseId.in(caseIds)) }
+assignTasks(tasks)                            // assign list to current user
+assignTasks(tasks, userService.loggedOrSystem)
+finishTasks(tasks)
+finishTasks(tasks, userService.loggedOrSystem)
+cancelTasks(tasks)
+cancelTasks(tasks, userService.loggedOrSystem)
+
+// getData — read all field values from a task (returns Map<String,Field>)
+def task = findTask { it.transitionId.eq("edit_limit").and(it.caseId.eq(useCase.stringId)) }
+def data = getData(task)
+change my_field value { data["remote_field"].value }
+// also: getData(transitionObject) or getData("transitionId", caseObject)
 
 // setData
 setData(task, [field: [value: "v", type: "text"]])
@@ -352,10 +389,10 @@ generatePdf("transition_id", "file_field_id")
 
 // Populate options from cases of another process
 def opts = findCases { it.processIdentifier.eq(workspace + "order") }
-    .collectEntries { [(it.stringId): "Order: " + it.stringId] }
+        .collectEntries { [(it.stringId): "Order: " + it.stringId] }
 change my_field options { opts }
 
-// Batch finish all tasks in taskRef list
+// Batch finish all tasks in taskRef list (manual loop with null-check)
 taskref: f.taskref;
 taskref.value.each { id -> def t = findTask({ it._id.eq(id) }); if (t) finishTask(t) }
 ```
@@ -946,6 +983,51 @@ change item_tasks value { (item_tasks.value ?: []) + tid }
 
 > **Each process is a completely isolated namespace.** Roles, fields, transitions, and places from one process are invisible to all others — they cannot be referenced in XML from another process. Cross-process interaction happens exclusively through action code (`findCase`, `findTask`, `setData`, `assignTask`, `finishTask`). When generating a multi-process application, always produce each process as a fully independent `<document>` with its own complete set of roles, fields, and structure. Never reference a role ID, field ID, or transition ID from another process in XML.
 
+### IPC-0 — Cross-process taskRef embedding (THE ONLY CORRECT PATTERN)
+
+**C9 — When embedding tasks from Process B into a taskRef in Process A, there is exactly one correct approach. Any other approach will fail.**
+
+**❌ NEVER generate these patterns — they do not work:**
+- `setData(transition, case, ["refresh_trigger": UUID])` + data `set` event + `findTasks/findCase` loop
+- `findCase()` inside `.findAll {}` blocks (N+1 queries, unreliable)
+- `findTasks { it.dataSet... }` inside any query predicate (MissingPropertyException)
+- `refresh_trigger` field with UUID to "notify" parent process
+
+**✅ THE ONLY CORRECT PATTERN — IPC-0:**
+
+**Step 1 — Process A (Order): permanently alive system task as setData target.**
+Token arrives when case reaches open state, read arc keeps task alive forever:
+```xml
+<arc><id>a1</id><type>regular</type><sourceId>t_approve</sourceId><destinationId>p_panel</destinationId><multiplicity>0</multiplicity><reference>go_approve</reference></arc>
+<arc><id>a2</id><type>read</type><sourceId>p_panel</sourceId><destinationId>t_invoice_panel</destinationId><multiplicity>1</multiplicity></arc>
+<!-- t_invoice_panel: system role, no dataGroup — only a setData target, never shown to users -->
+```
+
+**Step 2 — Process B (Invoice): append this task's ID directly to Process A's taskRef.**
+Call inside `async.run` from register finish post:
+```groovy
+parent_id: f.parent_id;
+async.run {
+    def orderCase = findCase { it._id.eq(parent_id.value) }
+    if (orderCase) {
+        def myTask = findTask { it.transitionId.eq("invoice_approval").and(it.caseId.eq(useCase.stringId)) }
+        if (myTask) {
+            def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
+            setData("t_invoice_panel", orderCase, [
+                "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
+            ])
+        }
+    }
+}
+```
+
+**Step 3 — Process B: invoice_approval task must be permanently open (read arc).**
+Token placed after register finishes, read arc keeps task alive for embedding:
+```xml
+<arc><id>a3</id><type>regular</type><sourceId>register</sourceId><destinationId>p_approval</destinationId><multiplicity>1</multiplicity></arc>
+<arc><id>a4</id><type>read</type><sourceId>p_approval</sourceId><destinationId>invoice_approval</destinationId><multiplicity>1</multiplicity></arc>
+```
+
 ### IPC-1 — Parent creates child, gets first task immediately
 
 ```groovy
@@ -1074,7 +1156,7 @@ make iban, hidden   on t_submit when { return contract_type.value != "bank_trans
 ```groovy
 country: f.country, city: f.city;
 def conn = (java.net.HttpURLConnection) new java.net.URL(
-  "https://api.example.com/cities?country=${country.value}").openConnection()
+        "https://api.example.com/cities?country=${country.value}").openConnection()
 conn.setRequestMethod("GET"); conn.setConnectTimeout(5000); conn.setReadTimeout(10000)
 def result = new groovy.json.JsonSlurper().parseText(conn.getInputStream().getText("UTF-8"))
 change city options { result.collectEntries { [(it.code): it.name] } }
@@ -1084,21 +1166,21 @@ change city options { result.collectEntries { [(it.code): it.name] } }
 ```groovy
 api_key: f.api_key, prompt: f.prompt, result: f.result;
 async.run {
-   def conn = (java.net.HttpURLConnection) new java.net.URL("https://api.openai.com/v1/chat/completions").openConnection()
-   conn.setRequestMethod("POST")
-   conn.setRequestProperty("Content-Type", "application/json")
-   conn.setRequestProperty("Authorization", "Bearer ${api_key.value}")
-   conn.setDoOutput(true); conn.setConnectTimeout(15_000); conn.setReadTimeout(60_000)
-   conn.outputStream.write(groovy.json.JsonOutput.toJson([
-           model: "gpt-4o-mini", messages: [[role: "user", content: prompt.value ?: ""]]
-   ]).getBytes("UTF-8"))
-   def body = ""
-   try { body = conn.inputStream.getText("UTF-8") }
-   catch (e) { body = conn.errorStream?.getText("UTF-8") ?: '{"error":"unreachable"}' }
-   def content = new groovy.json.JsonSlurper().parseText(body)?.choices?.getAt(0)?.message?.content ?: "{}"
-   def normalized = content.replaceAll('(?m)^```(?:json)?\\s*','').replaceAll('(?m)^```\\s*$','').trim()
-   def t = findTask { it.transitionId.eq("result_task").and(it.caseId.eq(useCase.stringId)) }
-   if (t) setData(t, [result: [value: normalized, type: "text"]])
+  def conn = (java.net.HttpURLConnection) new java.net.URL("https://api.openai.com/v1/chat/completions").openConnection()
+  conn.setRequestMethod("POST")
+  conn.setRequestProperty("Content-Type", "application/json")
+  conn.setRequestProperty("Authorization", "Bearer ${api_key.value}")
+  conn.setDoOutput(true); conn.setConnectTimeout(15_000); conn.setReadTimeout(60_000)
+  conn.outputStream.write(groovy.json.JsonOutput.toJson([
+          model: "gpt-4o-mini", messages: [[role: "user", content: prompt.value ?: ""]]
+  ]).getBytes("UTF-8"))
+  def body = ""
+  try { body = conn.inputStream.getText("UTF-8") }
+  catch (e) { body = conn.errorStream?.getText("UTF-8") ?: '{"error":"unreachable"}' }
+  def content = new groovy.json.JsonSlurper().parseText(body)?.choices?.getAt(0)?.message?.content ?: "{}"
+  def normalized = content.replaceAll('(?m)^```(?:json)?\\s*','').replaceAll('(?m)^```\\s*$','').trim()
+  def t = findTask { it.transitionId.eq("result_task").and(it.caseId.eq(useCase.stringId)) }
+  if (t) setData(t, [result: [value: normalized, type: "text"]])
 }
 ```
 

@@ -118,7 +118,10 @@ public class XmlValidator {
         // 6. Check for self-reference in taskRef <init>
         errors.addAll(checkTaskRefSelfReference(xml));
 
-        // 7. Check for Place→Place arcs (C2 violation)
+        // 7. Check for <view>true</view> in roleRef (not valid in Petriflow)
+        errors.addAll(checkViewRoleRef(xml));
+
+        // 8. Check for Place→Place arcs (C2 violation)
         errors.addAll(checkPlaceToPlaceArcs(xml));
 
         // 8. Check for assignTask/finishTask on human tasks (C3 violation)
@@ -259,6 +262,19 @@ public class XmlValidator {
     }
 
     /**
+     * Check for <view>true</view> inside <roleRef><logic> — not valid in Petriflow.
+     * Only <perform>, <cancel>, <delegate> are valid logic elements.
+     */
+    private static List<String> checkViewRoleRef(String xml) {
+        List<String> errors = new ArrayList<>();
+        // Simple string check — <view> inside <logic> inside <roleRef>
+        if (xml.contains("<view>true</view>") || xml.contains("<view>false</view>")) {
+            errors.add("Found <view> element inside <roleRef><logic> — only <perform>, <cancel>, <delegate> are valid. Remove <view> entirely.");
+        }
+        return errors;
+    }
+
+    /**
      * Check for Place→Place arcs (C2 violation).
      * Collects all place IDs, then checks if any arc goes from a place directly to another place.
      */
@@ -337,6 +353,69 @@ public class XmlValidator {
             }
         } catch (Exception e) {
             log.debug("Could not parse XML for assignTask-on-human-task check: {}", e.getMessage());
+        }
+        return errors;
+    }
+
+
+    /**
+     * Check for c.getPlace("...") usage — this method does not exist on Case objects.
+     * Correct approach: (c.activePlaces?.get("p_id") ?: 0) > 0
+     */
+    private static List<String> checkGetPlaceUsage(String xml) {
+        List<String> errors = new ArrayList<>();
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            if (block.contains(".getPlace(")) {
+                errors.add("Found .getPlace() call in action code - this method does not exist on Case objects. " +
+                        "Use (c.activePlaces?.get(placeId) ?: 0) > 0 to check token state instead.");
+                break;
+            }
+        }
+        return errors;
+    }
+
+    /**
+     * Check for the trigger field + UUID refresh pattern (IPC anti-pattern).
+     * UUID.randomUUID() inside setData targeting a transition suggests the trigger field pattern.
+     * The correct approach is IPC-0: permanently alive system task + direct taskRef append.
+     */
+    private static List<String> checkTriggerFieldUuidPattern(String xml) {
+        List<String> errors = new ArrayList<>();
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            if (block.contains("UUID.randomUUID()") && block.contains("setData(")) {
+                errors.add("Found UUID.randomUUID() combined with setData() in action code - this suggests the trigger field refresh pattern " +
+                        "which is unreliable for cross-process taskRef updates. " +
+                        "Use IPC-0 instead: a permanently alive system task as setData target, " +
+                        "and append task IDs directly to the taskRef field.");
+                break;
+            }
+        }
+        return errors;
+    }
+
+
+    /**
+     * Check for findCase() calls inside .findAll { } blocks — N+1 query anti-pattern.
+     * Each iteration hits the database separately. Use IPC-0 direct append instead.
+     */
+    private static List<String> checkFindCaseInFindAll(String xml) {
+        List<String> errors = new ArrayList<>();
+        Pattern cdataPattern = Pattern.compile("<!\\[CDATA\\[(.*?)\\]\\]>", Pattern.DOTALL);
+        Matcher cdataMatcher = cdataPattern.matcher(xml);
+        while (cdataMatcher.find()) {
+            String block = cdataMatcher.group(1);
+            if (block.contains(".findAll") && block.contains("findCase(")) {
+                errors.add("Found findCase() inside a .findAll block — this is an N+1 query anti-pattern. " +
+                        "Each iteration hits the database separately. " +
+                        "Use IPC-0 instead: append task IDs directly via setData on a permanently alive system task.");
+                break;
+            }
         }
         return errors;
     }

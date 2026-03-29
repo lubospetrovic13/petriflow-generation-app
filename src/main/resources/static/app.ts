@@ -931,7 +931,24 @@ function parseContent(text) {
       }
       const id = 'cb_' + Math.random().toString(36).slice(2, 7);
       const escapedCode = escHtml(seg.content.trimEnd());
-      html += `<pre id="${id}"><button class="copy-btn" onclick="copyCode('${id}',this)">copy</button><code>${escapedCode}</code></pre>`;
+      if (isXml) {
+        const processId = seg.content.match(/<id>([^<]+)<\/id>/)?.[1]?.trim() || 'XML';
+        const lines = escapedCode.split('\n');
+        const previewLines = lines.slice(0, 5).join('\n');
+        const restLines = lines.length > 5 ? lines.slice(5).join('\n') : '';
+        const hasMore = restLines.length > 0;
+        html += `<div class="xml-collapsible">
+  <div class="xml-collapsible-header">
+    <span class="xml-collapse-label">📄 ${escHtml(processId)}</span>
+    <button class="copy-btn inline" onclick="copyCode('${id}',this)">copy</button>
+  </div>
+  <pre id="${id}" class="xml-pre-preview"><code class="xml-preview-code">${previewLines}</code>${hasMore ? `<code class="xml-rest-code" style="display:none">
+${restLines}</code>` : ''}</pre>
+  ${hasMore ? `<button class="xml-show-more" onclick="toggleXmlRest(this)">Show full XML ▾</button>` : ''}
+</div>`;
+      } else {
+        html += `<pre id="${id}"><button class="copy-btn" onclick="copyCode('${id}',this)">copy</button><code>${escapedCode}</code></pre>`;
+      }
     }
   }
 
@@ -984,7 +1001,12 @@ function serializeXml(node, depth) {
 }
 
 function copyCode(id, btn) {
-  navigator.clipboard.writeText(document.getElementById(id).querySelector('code').textContent).then(() => {
+  const pre = document.getElementById(id);
+  const allCode = pre.querySelectorAll('code');
+  let fullText = '';
+  allCode.forEach(code => fullText += code.textContent);
+
+  navigator.clipboard.writeText(fullText).then(() => {
     btn.textContent = '✓ copied'; btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 2000);
   });
@@ -1225,6 +1247,26 @@ function updateScrollButtons() {
     bottomBtn.classList.add('visible');
   } else {
     bottomBtn.classList.remove('visible');
+  }
+}
+
+// Toggle full XML visibility
+function toggleXmlRest(btn) {
+  const pre = btn.previousElementSibling;
+  const rest = pre.querySelector('.xml-rest-code');
+  if (!rest) return;
+  const isHidden = rest.style.display === 'none';
+  rest.style.display = isHidden ? 'inline' : 'none';
+  btn.textContent = isHidden ? 'Collapse ▴' : 'Show full XML ▾';
+
+  if (isHidden) {
+    // Expanding - show scrollbar
+    pre.style.maxHeight = '500px';
+    pre.style.overflowY = 'auto';
+  } else {
+    // Collapsing - hide scrollbar
+    pre.style.maxHeight = '7em';
+    pre.style.overflowY = 'hidden';
   }
 }
 
