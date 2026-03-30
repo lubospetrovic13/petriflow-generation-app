@@ -1,39 +1,40 @@
 # Petriflow Generation
 
-> **Can LLMs reliably generate valid PetriFlow process applications from natural language?**  
-> This repository is my ongoing attempt to find out.
+> **A tool for building enterprise process applications from natural language.**  
+> Describe your workflow in plain text — get a valid, deployable [PetriFlow](https://petriflow.com) XML process in seconds.
 
 ---
 
-## What's in here
+## What this is
 
-The core of this project is **two instructional Markdown documents** built specifically to teach large language models how to generate [PetriFlow](https://petriflow.com) XML:
+Enterprise process applications are hard to build. A workflow that looks simple on a whiteboard — submit, review, approve, notify — quickly becomes hundreds of lines of configuration: forms, roles, routing logic, automation scripts, email triggers, cross-process integrations.
 
-| File | Purpose |
-|------|---------|
-| `petriflow_guide.md` | Full schema walkthrough, patterns, Groovy action examples, process templates (~250KB) |
-| `petriflow_reference.md` | Critical rules, common error patterns, generation workflow, quick reference snippets |
+This tool lets you describe a workflow in plain English and generates a complete, deployable process application from it — validated and ready to run. Under the hood it targets [PetriFlow](https://petriflow.com), an open-source process language by [Netgrif](https://netgrif.com), which means the output isn't pseudocode or a diagram — it's a real application file you can import and run immediately.
 
-Both files are in `src/main/resources/guides/`.
-
-**You can use these guides without the app** — paste them into any LLM chat and ask it to generate a PetriFlow process. That's the point.
-
-The repository also includes a **Spring Boot backend** for systematic experimentation: compare providers, context strategies, token costs, and output quality across runs.
+It supports three LLM backends (Claude, OpenAI, Gemini), two context strategies (full prompt vs. RAG), and includes a chat interface with persistent history so you can iterate on a process across sessions.
 
 ---
 
-## What is PetriFlow?
+## How it works
 
-[PetriFlow](https://petriflow.com) is an open-source XML + Groovy language developed by [Netgrif](https://netgrif.com) for building enterprise process applications. A single `.xml` file defines:
+1. **Describe your process** — use the chat or pick a suggestion to get started
+2. **The LLM generates PetriFlow XML** — guided by a detailed reference document covering the full schema, critical rules, and common patterns
+3. **XML is automatically validated** — 12 structural checks run on every output
+4. **If errors are found, a second call fires automatically** — the model sees the exact errors and self-corrects before you receive the response
+5. **Copy the XML or open it directly in Netgrif Builder** — one click uploads to GitHub and opens the process in the visual editor
 
-- **Process flow** — Petri net topology with places, transitions, and arcs
-- **Data model** — typed fields with validation
-- **UI** — forms for logged-in and anonymous users
-- **Role-based access control**
-- **Automation logic** — Groovy actions triggered on task/case lifecycle events
-- **Notifications and integrations**
+---
 
-The language is precise and the runtime is strict — which makes it a meaningful challenge for LLMs.
+## Example workflows you can generate
+
+- **Public request & response** — anonymous submission form → routing to Legal or PR → public status page
+- **Leave request approval** — employee submits → manager approves/rejects → HR confirms → email notifications
+- **Email processing pipeline** — intake → AI classification + entity extraction → reviewer edits and routes
+- **Order & invoice (linked processes)** — two separate processes with real-time cross-process embedding
+- **Bug report lifecycle** — submission → triage → developer fix → QA verification loop
+- **Purchase order (parallel review)** — Legal + Finance review in parallel, both must approve before final decision
+
+These are also available as one-click suggestion chips in the UI.
 
 ---
 
@@ -45,7 +46,7 @@ The language is precise and the runtime is strict — which makes it a meaningfu
 # 1. Copy environment template
 cp .env.example .env
 
-# 2. Add your API keys (at least one of the three)
+# 2. Add your API keys (at least one)
 # ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY
 
 # 3. Start
@@ -58,7 +59,7 @@ Open `http://localhost:8080`
 
 ```bash
 cp src/main/resources/application.properties.example src/main/resources/application.properties
-# Edit application.properties and add your API keys
+# Edit application.properties — add API keys and choose provider
 mvn spring-boot:run
 ```
 
@@ -68,11 +69,11 @@ mvn spring-boot:run
 
 | Provider | Default model | Alternatives |
 |----------|--------------|-------------|
-| **Claude** (Anthropic) | `claude-sonnet-4-5` | `claude-opus-4-5`, `claude-haiku-4-5` |
-| **OpenAI** | `gpt-4o` | `gpt-4o-mini`, `gpt-4-turbo` |
+| **Claude** (Anthropic) | `claude-sonnet-4-6` | `claude-opus-4-6`, `claude-haiku-4-5` |
+| **OpenAI** | `gpt-4.1` | `gpt-4o`, `gpt-4o-mini` |
 | **Gemini** (Google) | `gemini-2.5-flash` | `gemini-2.0-flash`, `gemini-1.5-pro` |
 
-Configure in `application.properties` (or `.env` for Docker).
+Configure in `application.properties` or `.env`.
 
 ---
 
@@ -80,14 +81,33 @@ Configure in `application.properties` (or `.env` for Docker).
 
 | Mode | How it works | Best for |
 |------|-------------|---------|
-| `full` | Entire guide injected into system prompt. Claude uses prompt caching to reduce cost on repeated runs. | Highest accuracy, complex processes |
+| `full` | Entire reference document injected into system prompt. Claude uses prompt caching to reduce cost on repeated calls. | Highest accuracy, complex processes |
 | `rag` | Top-K most relevant chunks retrieved per query using embeddings. | Lower cost, faster iteration |
 
-RAG embeddings are computed on first run and cached in `rag-cache/`. After editing the guide, reload with:
+RAG embeddings are computed on first run and cached in `rag-cache/`. After editing the reference document, reload with:
 
 ```bash
 curl -X POST http://localhost:8080/api/reload
 ```
+
+---
+
+## Key features
+
+**Two-pass XML validation**  
+Every generated XML runs through 12 structural checks (invalid arc directions, missing imports, forbidden patterns, escaped characters, etc.). If any check fails, a second LLM call is made automatically with the exact errors — the corrected XML is what you receive.
+
+**Chat persistence**  
+Conversations are saved to `chats.json` and survive restarts. Switch between past sessions from the sidebar.
+
+**Open in Builder**  
+Generated XML can be uploaded directly to a GitHub repository and opened in Netgrif Builder for visual editing — one click from the chat.
+
+**Run log**  
+Every generation is appended as a JSON line to `run-log.jsonl` with token counts, cost estimates, duration, and the prompt used. Useful for comparing providers and context strategies.
+
+**Extended thinking**  
+Configurable for both Claude and Gemini for more complex or ambiguous process descriptions.
 
 ---
 
@@ -113,58 +133,36 @@ Events:
 Returns active configuration (provider, model, context mode, RAG settings).
 
 ### `GET /api/runs?limit=20`
-Returns the last N run log entries (newest first) with token counts, cost estimates, and duration.
+Returns the last N run log entries (newest first).
 
 ### `POST /api/reload`
-Recomputes RAG embeddings after updating the guide.
+Recomputes RAG embeddings after updating the reference document.
 
 ### `GET /api/health`
 Health check.
 
 ---
 
-## Run log
+## Under the hood: the reference document
 
-Every generation appends a JSON line to `run-log.jsonl`:
+The quality of generation depends almost entirely on `petriflow_reference.md` — a ~60KB document that encodes:
 
-```json
-{
-  "timestamp": "2025-03-22T10:30:00Z",
-  "llm": "claude",
-  "model": "claude-sonnet-4-5",
-  "contextMode": "full",
-  "promptTokens": 42000,
-  "outputTokens": 3100,
-  "cacheReadTokens": 40500,
-  "durationMs": 6200,
-  "estimatedCostUsd": 0.0031,
-  "userPrompt": "Create a leave request workflow..."
-}
-```
+- The full PetriFlow XML schema with annotated examples
+- 9 critical rules covering the most common failure modes (arc direction, action phases, cross-process patterns, forbidden constructs)
+- 12 validation checks that mirror what the runtime enforces
+- Generation workflow (conversational vs. partial vs. fully specified requests)
+- QueryDSL limitations and correct workarounds
+- IPC patterns for cross-process communication
 
-Analyze across runs:
+`petriflow_guide.md` (~250KB) is the human-readable companion — use it for understanding the schema or maintaining the reference.
 
-```python
-import pandas as pd
-df = pd.read_json('run-log.jsonl', lines=True)
-df.groupby(['llm', 'contextMode'])[['estimatedCostUsd', 'durationMs']].mean()
-```
-
----
-
-## Just want to try the guides?
-
-No setup needed. Copy the contents of `petriflow_reference.md` (the shorter one, ~50KB) into any LLM system prompt and ask:
-
-> *"Create a simple document approval workflow with a submitter and an approver. The approver can approve or reject. On rejection, the submitter can revise and resubmit."*
-
-The guide tells the model what rules to follow, what errors to avoid, and how to structure the output. See what it produces — and if you find cases where it fails, I want to know.
+**You can use the reference document without the app** — paste `petriflow_reference.md` into any LLM system prompt and ask it to generate a process. The app adds validation, retry, provider switching, chat history, and the Builder integration on top.
 
 ---
 
 ## Windows / Java 11 TLS
 
-If you get an SSL handshake error:
+If you get an SSL handshake error on local Maven:
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Dhttps.protocols=TLSv1.2,TLSv1.3 -Djdk.tls.client.protocols=TLSv1.2,TLSv1.3"
@@ -181,15 +179,3 @@ Copyright © 2026 Ľuboš Petrovič. All rights reserved.
 This project and all associated documentation are proprietary and confidential. Unauthorized copying, modification, distribution, or use is strictly prohibited without prior written permission from the copyright holder.
 
 See [LICENSE](LICENSE) for full terms.
-
----
-
-## Contributing / Feedback
-
-This is an open research effort. If you've worked on:
-- Prompting strategies for schema-bound code generation
-- RAG tuning for structured outputs
-- Fine-tuning or few-shot approaches for XML-heavy DSLs
-- Evaluation of generated structured documents
-
-...open an issue, start a discussion, or reach out directly. Any direction helps.
