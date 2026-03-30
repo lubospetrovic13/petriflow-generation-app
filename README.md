@@ -95,7 +95,7 @@ curl -X POST http://localhost:8080/api/reload
 ## Key features
 
 **Two-pass XML validation**  
-Every generated XML runs through 12 structural checks (invalid arc directions, missing imports, forbidden patterns, escaped characters, etc.). If any check fails, a second LLM call is made automatically with the exact errors — the corrected XML is what you receive.
+Every generated XML runs through 15 structural checks (well-formedness, invalid arc directions, missing imports, forbidden patterns, unbootstrapped system tasks, duplicate arcs, escaped characters, etc.). If any check fails, a second LLM call is made automatically with the exact errors — the corrected XML is what you receive.
 
 **Chat persistence**  
 Conversations are saved to `chats.json` and survive restarts. Switch between past sessions from the sidebar.
@@ -149,7 +149,7 @@ The quality of generation depends almost entirely on `petriflow_reference.md` �
 
 - The full PetriFlow XML schema with annotated examples
 - 9 critical rules covering the most common failure modes (arc direction, action phases, cross-process patterns, forbidden constructs)
-- 12 validation checks that mirror what the runtime enforces
+- 15 validation checks that mirror what the runtime enforces
 - Generation workflow (conversational vs. partial vs. fully specified requests)
 - QueryDSL limitations and correct workarounds
 - IPC patterns for cross-process communication

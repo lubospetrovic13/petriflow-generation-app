@@ -8,14 +8,16 @@
 Data fields do not exist during the `pre` phase of a create event — any `change` on a field there fails silently at runtime. No exceptions.
 
 **C2 — Arcs are strictly Place→Transition→Place. Never Place→Place, never Transition→Transition.**
-Applies to ALL arc types: regular, read, reset, inhibitor, variable. Most common mistake: `t_legal → p_legal_done → p_merge` where the last arc is P→P. Fix: route `t_legal` directly to `p_merge`, or insert a system transition between the two places.
+Applies to ALL arc types: regular, read, reset, inhibitor, variable. Most common mistake in AND-join patterns: adding intermediate "done" places (`p_legal_done`, `p_finance_done`) between the review transition and the join place, then connecting them with `p_legal_done → p_join` — that last arc is Place→Place and is invalid. Fix: route each review transition **directly** into the shared join place. `review_legal → join` ✅, `review_legal → p_legal_done → join` ❌.
 
-**C3 — Only `system`-role transitions need `async.run` bootstrap. Never call `assignTask` on a human task from `caseEvents`.**
-A system-role transition never fires on its own — not even with `assignPolicy auto`. Every system task (split, bridge, router) requires bootstrapping from the preceding human task's `finish post`:
+**C3 — Only `system`-role transitions need bootstrapping. Never call `assignTask` on a human task from `caseEvents`.**
+A system-role transition never fires on its own — not even with `assignPolicy auto`. Always bootstrap from the preceding human task's `finish post`:
 ```groovy
 async.run { assignTask("system_task_id"); finishTask("system_task_id") }
 ```
 If the system task is reached via a variable arc, the `async.run` must be conditional on the routing decision.
+
+> 📝 Note: PetriFlow supports `trigger type="auto"` on system transitions as a cleaner alternative that avoids a rare race condition (~1/100 under high concurrent load). However, Netgrif Builder does not support trigger editing — always use the `async.run` pattern above for Builder-compatible processes.
 
 **Human tasks with `tokens=1` in their input place are automatically enabled — they never need `assignTask` from `caseEvents`.** Calling `assignTask` on a human task from `caseEvents` assigns it to the system user (not the logged-in user), permanently blocking the task for real users.
 
@@ -324,10 +326,10 @@ userService.loggedOrSystem.email
 userService.loggedOrSystem.transformToUser()
 
 // Case
-def c  = findCase  { it.stringId.eq(id) }
-def cs = findCases { it.processIdentifier.eq("process_id") }
-def c  = createCase("child_id", "Title", "blue")  // full
-def c  = createCase("child_id")                   // minimal
+def c  = findCase  { it._id.eq(id) }
+def cs = findCases { it.processIdentifier.eq(workspace + "process_id") }  // ALWAYS workspace + prefix — never a bare string literal
+def c  = createCase(workspace + "child_id", "Title", "blue")  // full — workspace + required
+def c  = createCase(workspace + "child_id")                   // minimal — workspace + required
 def val = c.getFieldValue("field_id")             // alt to c.dataSet["field_id"]?.value
 
 // Check token state of a place on a case — use activePlaces, NOT getPlace() which does not exist
@@ -404,7 +406,8 @@ taskref.value.each { id -> def t = findTask({ it._id.eq(id) }); if (t) finishTas
 | Situation | Use |
 |-----------|-----|
 | User picks one of N paths via field | Variable arcs (XOR) — set one `number`=1, rest=0 in `phase="pre"` |
-| All N branches must complete | AND-split/join (Pattern 4) |
+| All N branches must complete, one rejection = immediate stop | AND-split/join with variable arcs on review transitions (Pattern 4a) |
+| All N branches must complete, collect all feedback then decide | AND-split/join with unconditional arcs to join, system evaluate task (Pattern 4b) |
 | User selects 1–N paths via multichoice_map | OR-split via variable arcs (Pattern 6) |
 | Decision needs Groovy logic (ranges, lookups) | Systematic tasks (Pattern 14) |
 | ❌ NEVER | Two plain regular arcs from same place without `<reference>` |
@@ -460,9 +463,9 @@ Always-accessible status → Detail task + read arc (Pattern 16)
 | 31 | `workflowService.deleteCase(stringId)` — deletes case programmatically |
 | 32 | `findTasks { it.caseId.in(list) }` — `.in()` filters across multiple case IDs |
 | 33 | `case.getFieldValue("id")` — alternative to `case.dataSet["id"]?.value` |
-| 34 | `workspace` — eTask-specific prefix variable; use literal process ID on standalone NAE |
+| 34 | **ALWAYS use `workspace + "process_id"` in `findCases`, `findTasks`, and `createCase`** — never a bare string literal for process identifiers. `workspace` is an eTask runtime variable that prefixes all process IDs. Omitting it causes silent lookup failures (no cases found, no tasks found) with no error message. This applies to every cross-process call without exception. |
 | 35 | **Empty `<caseEvents>` block causes eTask import error** — if there are no real actions, omit the entire `<caseEvents>` block. A block with only a comment or empty action is invalid. |
-| 36 | **Permanently open task: read arc only, no outgoing arc** — a task that must never finish needs only a `read` arc from a place with `tokens=1`. Never add a regular arc from the same place — it makes the task finishable and breaks the pattern. |
+| 36 | **Permanently open task: `read` arc ONLY — never also a `regular` arc from the same place.** A task that must never finish needs only a `read` arc from a place with a token. Adding a `regular` arc from the same place makes the task finishable (the token is consumed) and breaks the permanent-open pattern. `read`+`regular` from the same place to the same transition is always wrong — pick one: `read` for permanent tasks, `regular` for tasks that consume the token and finish. |
 | 37 | **`taskRef` `<init>` is for static single-task embeds only** — for a dynamic list built via button+createCase, leave `<init>` empty. Set the taskRef value dynamically via `change field value { list + tid }` in the button action. |
 
 ---
@@ -574,32 +577,29 @@ else                              { change go_approve value { 0 }; change go_rej
 ## Pattern 4 — AND-split / AND-join (parallel branches)
 
 ```
-                   ┌→ [legal_p:0] → [review_legal] → [legal_done:0] ─┐
-[p0:0] → [split,sys] ┤                                                   [join:0] →(mult=2)→ [finalize]
-                   └→ [finance_p:0]→[review_finance]→[finance_done:0]─┘
+                   ┌→ [legal_p:0] → [review_legal] ──────────────────┐
+[p0:0] → [split,sys] ┤                                                  [join:0] →(mult=2)→ [finalize]
+                   └→ [finance_p:0]→[review_finance]─────────────────┘
 ```
 
 > ⚠️ Place with two outgoing arcs = race condition, not AND-split. Split is a system task.
+> ⚠️ **No intermediate "done" places between the review transitions and the join place.** Route each review transition directly into `join` — inserting `legal_done → join` creates a Place→Place arc which is invalid (C2).
 
 ```xml
 <transition><id>split</id><x>304</x><y>208</y><label>Split</label>
   <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
 </transition>
-<place><id>legal_p</id>     <x>496</x><y>112</y><label>Legal Queue</label>   <tokens>0</tokens><static>false</static></place>
-<place><id>finance_p</id>   <x>496</x><y>304</y><label>Finance Queue</label> <tokens>0</tokens><static>false</static></place>
-<place><id>legal_done</id>  <x>880</x><y>112</y><label>Legal Done</label>    <tokens>0</tokens><static>false</static></place>
-<place><id>finance_done</id><x>880</x><y>304</y><label>Finance Done</label>  <tokens>0</tokens><static>false</static></place>
-<place><id>join</id>        <x>1072</x><y>208</y><label>Both Done</label>    <tokens>0</tokens><static>false</static></place>
-<arc><id>a1</id><type>regular</type><sourceId>p0</sourceId>            <destinationId>split</destinationId>        <multiplicity>1</multiplicity></arc>
-<arc><id>a2</id><type>regular</type><sourceId>split</sourceId>         <destinationId>legal_p</destinationId>      <multiplicity>1</multiplicity></arc>
-<arc><id>a3</id><type>regular</type><sourceId>split</sourceId>         <destinationId>finance_p</destinationId>    <multiplicity>1</multiplicity></arc>
-<arc><id>a4</id><type>regular</type><sourceId>legal_p</sourceId>       <destinationId>review_legal</destinationId> <multiplicity>1</multiplicity></arc>
+<place><id>legal_p</id>  <x>496</x><y>112</y><label>Legal Queue</label>   <tokens>0</tokens><static>false</static></place>
+<place><id>finance_p</id><x>496</x><y>304</y><label>Finance Queue</label> <tokens>0</tokens><static>false</static></place>
+<place><id>join</id>     <x>880</x><y>208</y><label>Both Done</label>     <tokens>0</tokens><static>false</static></place>
+<arc><id>a1</id><type>regular</type><sourceId>p0</sourceId>            <destinationId>split</destinationId>         <multiplicity>1</multiplicity></arc>
+<arc><id>a2</id><type>regular</type><sourceId>split</sourceId>         <destinationId>legal_p</destinationId>       <multiplicity>1</multiplicity></arc>
+<arc><id>a3</id><type>regular</type><sourceId>split</sourceId>         <destinationId>finance_p</destinationId>     <multiplicity>1</multiplicity></arc>
+<arc><id>a4</id><type>regular</type><sourceId>legal_p</sourceId>       <destinationId>review_legal</destinationId>  <multiplicity>1</multiplicity></arc>
 <arc><id>a5</id><type>regular</type><sourceId>finance_p</sourceId>     <destinationId>review_finance</destinationId><multiplicity>1</multiplicity></arc>
-<arc><id>a6</id><type>regular</type><sourceId>review_legal</sourceId>  <destinationId>legal_done</destinationId>   <multiplicity>1</multiplicity></arc>
-<arc><id>a7</id><type>regular</type><sourceId>review_finance</sourceId><destinationId>finance_done</destinationId> <multiplicity>1</multiplicity></arc>
-<arc><id>a8</id><type>regular</type><sourceId>legal_done</sourceId>    <destinationId>join</destinationId>         <multiplicity>1</multiplicity></arc>
-<arc><id>a9</id><type>regular</type><sourceId>finance_done</sourceId>  <destinationId>join</destinationId>         <multiplicity>1</multiplicity></arc>
-<arc><id>a10</id><type>regular</type><sourceId>join</sourceId>         <destinationId>finalize</destinationId>     <multiplicity>2</multiplicity></arc>
+<arc><id>a6</id><type>regular</type><sourceId>review_legal</sourceId>  <destinationId>join</destinationId>          <multiplicity>1</multiplicity></arc>
+<arc><id>a7</id><type>regular</type><sourceId>review_finance</sourceId><destinationId>join</destinationId>          <multiplicity>1</multiplicity></arc>
+<arc><id>a8</id><type>regular</type><sourceId>join</sourceId>          <destinationId>finalize</destinationId>      <multiplicity>2</multiplicity></arc>
 ```
 
 ```groovy
@@ -607,28 +607,85 @@ else                              { change go_approve value { 0 }; change go_rej
 async.run { assignTask("split"); finishTask("split") }
 ```
 
+**If a system task follows the AND-join** (e.g. `router_sys` after `join` with multiplicity=2), it also needs bootstrapping — but you don't know which branch finishes last. Solution: **both** review transitions call the bootstrap in their `finish post`. The first call fails silently (only 1 token in `join`, task not yet enabled). The second call fires when `join` has 2 tokens and the task is enabled.
+
+```groovy
+// In BOTH review_legal AND review_finance — finish POST:
+async.run { assignTask("router_sys"); finishTask("router_sys") }
+```
+
+> ⚠️ Never bootstrap only one branch — if that branch finishes first, the call fails and the router never fires. Always add the bootstrap to every branch that feeds the AND-join.
+
 ---
 
 ## Pattern 4a — AND-split with approve/reject in each branch
 
 ```
-[review_legal]  ─(ref:legal_approve)→ [legal_done:0] ─┐
-                └(ref:legal_reject)→  [rejected:0]      [join:0] →(mult=2)→ [final]
-[review_finance]─(ref:fin_approve)→  [finance_done:0]─┘
-                └(ref:fin_reject)→   [rejected:0]
+[review_legal]  ─(ref:legal_approve)→ [join:0] →(mult=2)→ [final]
+                └(ref:legal_reject)→  [rejected:0]
+[review_finance]─(ref:fin_approve)→   [join:0]
+                └(ref:fin_reject)→    [rejected:0]
 ```
 
-Each review branch has routing number fields + variable arcs. Apply Pattern 2 routing action to each review transition independently. Arc structure per branch:
+Each review transition routes directly into the shared `join` place (approve) or `rejected` place (reject) — **no intermediate `legal_done`/`finance_done` places**. Those would create Place→Place arcs (C2 violation). Apply Pattern 2 routing action to each review transition independently:
+
 ```xml
 <data type="number"><id>legal_approve</id><title>Legal Approve</title><init>0</init></data>
 <data type="number"><id>legal_reject</id><title>Legal Reject</title><init>0</init></data>
 <!-- same for fin_approve, fin_reject -->
-<arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>legal_done</destinationId><multiplicity>0</multiplicity><reference>legal_approve</reference></arc>
-<arc><id>arc_lr</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>rejected</destinationId>  <multiplicity>0</multiplicity><reference>legal_reject</reference></arc>
-<!-- same arcs for review_finance → fin_approve/fin_reject -->
+<arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId>  <destinationId>join</destinationId>    <multiplicity>0</multiplicity><reference>legal_approve</reference></arc>
+<arc><id>arc_lr</id><type>regular</type><sourceId>review_legal</sourceId>  <destinationId>rejected</destinationId><multiplicity>0</multiplicity><reference>legal_reject</reference></arc>
+<arc><id>arc_fa</id><type>regular</type><sourceId>review_finance</sourceId><destinationId>join</destinationId>    <multiplicity>0</multiplicity><reference>fin_approve</reference></arc>
+<arc><id>arc_fr</id><type>regular</type><sourceId>review_finance</sourceId><destinationId>rejected</destinationId><multiplicity>0</multiplicity><reference>fin_reject</reference></arc>
+<arc><id>arc_j</id><type>regular</type><sourceId>join</sourceId>           <destinationId>finalize</destinationId><multiplicity>2</multiplicity></arc>
 ```
 
-> ⚠️ If either branch rejects, its token goes to `rejected` — other branch token gets stuck in `join`. Expected: rejection terminates immediately.
+> ⚠️ If either branch rejects, its token goes to `rejected` — the other branch token gets stuck in `join`. Expected: rejection terminates immediately.
+> ⚠️ If a system task follows `join` (multiplicity=2), add `async.run { assignTask("router_sys"); finishTask("router_sys") }` to the `finish post` of **both** `review_legal` and `review_finance`. The first call fails silently; the second fires when both tokens are present.
+
+---
+
+## Pattern 4b — AND-split where BOTH branches must complete before routing (wait-for-all)
+
+Use this when you want to collect feedback from all reviewers before deciding — even if one rejects, the other must still finish. This is the correct pattern when the requirement says "both reviews must be completed before the process can continue."
+
+```
+[review_legal]  ──────────────────────────────────────┐
+                                                        [p_join:0] →(mult=2)→ [t_evaluate,sys] → p_approved / p_rejected
+[review_finance]──────────────────────────────────────┘
+```
+
+**Key rule: NO variable arcs on review transitions.** Both always send a regular token to `p_join` regardless of decision. The decision (approve/reject) is stored in data fields and read by `t_evaluate` after both tokens arrive.
+
+```xml
+<!-- Both review transitions send unconditional token to p_join -->
+<arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId>  <destinationId>p_join</destinationId><multiplicity>1</multiplicity></arc>
+<arc><id>arc_fa</id><type>regular</type><sourceId>review_finance</sourceId><destinationId>p_join</destinationId><multiplicity>1</multiplicity></arc>
+<arc><id>arc_j</id> <type>regular</type><sourceId>p_join</sourceId>        <destinationId>t_evaluate</destinationId><multiplicity>2</multiplicity></arc>
+```
+
+```groovy
+// t_evaluate finish PRE — reads decisions from dataSet after both tokens arrive
+legal_decision: f.legal_decision, finance_decision: f.finance_decision,
+go_approved: f.go_approved, go_rejected: f.go_rejected, status: f.status;
+def bothApproved = (legal_decision.value == "approve" && finance_decision.value == "approve")
+if (bothApproved) {
+    change go_approved value { 1 }; change go_rejected value { 0 }
+    change status value { "Pending Final Decision" }
+} else {
+    change go_approved value { 0 }; change go_rejected value { 1 }
+    change status value { "Rejected — Revision Required" }
+}
+
+// Bootstrap in BOTH review_legal AND review_finance finish POST:
+async.run {
+    def t = findTask { it.transitionId.eq("t_evaluate").and(it.caseId.eq(useCase.stringId)) }
+    if (t) { assignTask(t, userService.loggedOrSystem); finishTask(t, userService.loggedOrSystem) }
+}
+```
+
+> ⚠️ **Never use variable arcs on review transitions in this pattern.** If `review_legal` sends token to `p_join` only on approve (variable arc), a rejection produces no token — `p_join` never reaches multiplicity=2 and `t_evaluate` never fires. Both transitions must always send exactly 1 regular token to `p_join`.
+> ⚠️ Use Pattern 4a instead if one rejection should terminate immediately without waiting for the other branch.
 
 ---
 
@@ -936,6 +993,11 @@ if (new_id.value !in (children.value ?: [])) {
 <arc><id>arc_sd</id><type>regular</type><sourceId>submit</sourceId>  <destinationId>p_detail</destinationId>   <multiplicity>1</multiplicity></arc>
 <arc><id>arc_dr</id><type>read</type>   <sourceId>p_detail</sourceId><destinationId>detail_view</destinationId><multiplicity>1</multiplicity></arc>
 ```
+
+> ⚠️ **ONE dedicated place, ONE read arc — never multiple read arcs from different places.**
+> A task with read arcs from multiple places (`p_legal`, `p_finance`, `p_join`, ...) is only enabled when ALL those places simultaneously have a token — which never happens in a sequential flow. The task will never appear.
+> ✅ Correct: one `p_detail` place that receives a token on submit and keeps it forever. The single read arc from `p_detail` keeps the task permanently enabled regardless of where the main flow token is.
+> ❌ Wrong: `p_split ─read→ status_view`, `p_legal ─read→ status_view`, `p_finance ─read→ status_view` — this requires all three places to have tokens simultaneously.
 
 Status updates in `phase="pre"` so detail view reflects new state atomically. Reveal fields progressively:
 ```groovy

@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
 
 /**
  * Validates generated Petriflow XML against:
- * 1. XSD schema (petriflow.schema.xsd)
- * 2. Six deterministic "gotcha" patterns from petriflow_reference.md
+ * 1. Well-formedness (mismatched tags, unclosed elements — catches e.g. <y>0</x>)
+ * 2. XSD schema (petriflow.schema.xsd)
+ * 3. Eleven deterministic "gotcha" patterns from petriflow_reference.md
  */
 public class XmlValidator {
 
@@ -53,13 +54,42 @@ public class XmlValidator {
             return new ValidationResult(errors); // No errors, not XML content
         }
 
-        // 1. XSD validation
+        // 1. Well-formedness check — must pass before XSD or DOM-based checks
+        errors.addAll(checkWellFormedness(xml));
+        if (!errors.isEmpty()) {
+            return new ValidationResult(errors); // No point running further checks on broken XML
+        }
+
+        // 2. XSD validation
         errors.addAll(validateAgainstXsd(xml));
 
-        // 2. Gotcha pattern checks
+        // 3. Gotcha pattern checks
         errors.addAll(checkGotchaPatterns(xml));
 
         return new ValidationResult(errors);
+    }
+
+    /**
+     * Checks basic XML well-formedness using a non-validating DOM parser.
+     * This catches mismatched tags (e.g. <y>0</x>), unclosed elements, etc.
+     * Must run before any DOM-based checks — they silently swallow parse failures.
+     */
+    private static List<String> checkWellFormedness(String xml) {
+        List<String> errors = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setValidating(false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            builder.setErrorHandler(null); // suppress default stderr output
+            builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+        } catch (SAXException e) {
+            errors.add("XML is not well-formed: " + e.getMessage() +
+                    " — check for mismatched tags (e.g. <y>0</x>), unclosed elements, or invalid characters");
+        } catch (Exception e) {
+            errors.add("XML well-formedness check failed: " + e.getMessage());
+        }
+        return errors;
     }
 
     /**
@@ -124,8 +154,26 @@ public class XmlValidator {
         // 8. Check for Place→Place arcs (C2 violation)
         errors.addAll(checkPlaceToPlaceArcs(xml));
 
-        // 8. Check for assignTask/finishTask on human tasks (C3 violation)
+        // 9. Check for read+regular arcs from same place to same transition (permanently-open anti-pattern)
+        errors.addAll(checkReadAndRegularDuplicateArcs(xml));
+
+        // 10. Check for task with read arcs from multiple different places (will never enable)
+        errors.addAll(checkMultipleReadArcSources(xml));
+
+        // 11. Check for assignTask/finishTask on human tasks (C3 violation)
         errors.addAll(checkAssignTaskOnHumanTasks(xml));
+
+        // 12. Check for system transitions not bootstrapped by any async.run
+        errors.addAll(checkUnbootstrappedSystemTasks(xml));
+
+        // 13. Check for c.getPlace() usage (does not exist on Case)
+        errors.addAll(checkGetPlaceUsage(xml));
+
+        // 14. Check for trigger field + UUID anti-pattern (IPC anti-pattern)
+        errors.addAll(checkTriggerFieldUuidPattern(xml));
+
+        // 15. Check for findCase() inside .findAll block (N+1 anti-pattern)
+        errors.addAll(checkFindCaseInFindAll(xml));
 
         return errors;
     }
@@ -311,6 +359,87 @@ public class XmlValidator {
     }
 
     /**
+     * Check for a transition that has read arcs from multiple DIFFERENT source places.
+     * Such a task is only enabled when ALL source places simultaneously have a token —
+     * which never happens in a normal sequential flow. The task will never appear to the user.
+     * Correct pattern: one dedicated p_detail place with a single read arc (Pattern 16).
+     */
+    private static List<String> checkMultipleReadArcSources(String xml) {
+        List<String> errors = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+            // Build map: destinationId → set of sourceIds for read arcs only
+            java.util.Map<String, java.util.Set<String>> readSources = new java.util.HashMap<>();
+            NodeList arcs = doc.getElementsByTagName("arc");
+            for (int i = 0; i < arcs.getLength(); i++) {
+                Element arc = (Element) arcs.item(i);
+                String type = getElementText(arc, "type");
+                String src  = getElementText(arc, "sourceId");
+                String dst  = getElementText(arc, "destinationId");
+                if (!"read".equals(type) || src == null || dst == null) continue;
+                readSources.computeIfAbsent(dst, k -> new java.util.HashSet<>()).add(src);
+            }
+
+            for (java.util.Map.Entry<String, java.util.Set<String>> entry : readSources.entrySet()) {
+                if (entry.getValue().size() > 1) {
+                    errors.add("Transition '" + entry.getKey() + "' has read arcs from " +
+                            entry.getValue().size() + " different places " + entry.getValue() +
+                            " — it will only enable when ALL those places have a token simultaneously, " +
+                            "which never happens in sequential flow. " +
+                            "Use one dedicated status place (p_detail) with a single read arc instead (Pattern 16).");
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse XML for multiple read arc sources check: {}", e.getMessage());
+        }
+        return errors;
+    }
+
+    /**
+     * Check for a place that has BOTH a read arc AND a regular arc going to the same transition.
+     * This breaks the permanently-open task pattern — the regular arc makes the task finishable
+     * (consuming the token), while the read arc is meant to keep it alive forever.
+     * One arc type must be chosen: read for permanent tasks, regular for tasks that finish.
+     */
+    private static List<String> checkReadAndRegularDuplicateArcs(String xml) {
+        List<String> errors = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+            // Build map: "sourceId→destinationId" → set of arc types
+            java.util.Map<String, java.util.Set<String>> arcMap = new java.util.HashMap<>();
+            NodeList arcs = doc.getElementsByTagName("arc");
+            for (int i = 0; i < arcs.getLength(); i++) {
+                Element arc = (Element) arcs.item(i);
+                String type = getElementText(arc, "type");
+                String src  = getElementText(arc, "sourceId");
+                String dst  = getElementText(arc, "destinationId");
+                if (type == null || src == null || dst == null) continue;
+                if (!type.equals("read") && !type.equals("regular")) continue;
+                String key = src + "→" + dst;
+                arcMap.computeIfAbsent(key, k -> new java.util.HashSet<>()).add(type);
+            }
+
+            for (java.util.Map.Entry<String, java.util.Set<String>> entry : arcMap.entrySet()) {
+                java.util.Set<String> types = entry.getValue();
+                if (types.contains("read") && types.contains("regular")) {
+                    errors.add("Place has both a 'read' arc and a 'regular' arc to the same transition: "
+                            + entry.getKey()
+                            + " — use 'read' only for permanently open tasks, 'regular' only for tasks that consume the token and finish. Never combine both.");
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse XML for read+regular duplicate arc check: {}", e.getMessage());
+        }
+        return errors;
+    }
+
+    /**
      * Check for assignTask/finishTask called on human tasks (C3 violation).
      * Collects system-role transition IDs, then checks if any CDATA action calls
      * assignTask/finishTask with a transition ID that is NOT a system task.
@@ -357,6 +486,60 @@ public class XmlValidator {
         return errors;
     }
 
+
+    /**
+     * Check for system-role transitions that are never bootstrapped by any async.run call.
+     * System tasks never fire on their own — each must be called via:
+     *   async.run { assignTask("id"); finishTask("id") }
+     * This catches cases like a router_sys after an AND-join where no branch calls the bootstrap.
+     */
+    private static List<String> checkUnbootstrappedSystemTasks(String xml) {
+        List<String> errors = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+            // Collect all system-role transition IDs
+            java.util.Set<String> systemIds = new java.util.HashSet<>();
+            NodeList transitions = doc.getElementsByTagName("transition");
+            for (int i = 0; i < transitions.getLength(); i++) {
+                Element t = (Element) transitions.item(i);
+                String tid = getElementText(t, "id");
+                NodeList roleRefs = t.getElementsByTagName("roleRef");
+                for (int j = 0; j < roleRefs.getLength(); j++) {
+                    if ("system".equals(getElementText((Element) roleRefs.item(j), "id"))) {
+                        if (tid != null) systemIds.add(tid);
+                        break;
+                    }
+                }
+            }
+
+            if (systemIds.isEmpty()) return errors;
+
+            // Collect all transition IDs referenced in assignTask("...") calls anywhere in CDATA
+            java.util.Set<String> bootstrapped = new java.util.HashSet<>();
+            Pattern assignPattern = Pattern.compile("assignTask\\(\\s*\"([^\"]+)\"\\s*\\)");
+            Matcher m = assignPattern.matcher(xml);
+            while (m.find()) {
+                bootstrapped.add(m.group(1));
+            }
+
+            // Any system task not referenced in any assignTask call is unbootstrapped
+            for (String sid : systemIds) {
+                if (!bootstrapped.contains(sid)) {
+                    errors.add("System transition '" + sid + "' is never bootstrapped — " +
+                            "system tasks do not fire automatically. Add " +
+                            "async.run { assignTask(\"" + sid + "\"); finishTask(\"" + sid + "\") } " +
+                            "to the finish post of the preceding human task(s). " +
+                            "If this task follows an AND-join, add the bootstrap to ALL branches feeding the join.");
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse XML for unbootstrapped system task check: {}", e.getMessage());
+        }
+        return errors;
+    }
 
     /**
      * Check for c.getPlace("...") usage — this method does not exist on Case objects.
@@ -419,5 +602,4 @@ public class XmlValidator {
         }
         return errors;
     }
-
 }

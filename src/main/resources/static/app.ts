@@ -218,10 +218,39 @@ function saveCurrent() {
       chats[idx].updatedAt = Date.now();
     }
   } else {
-    const firstUser = history.find(m => m.role === 'user');
-    const title = firstUser
-        ? firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 55) + (firstUser.content.length > 55 ? '…' : '')
-        : 'Untitled chat';
+    // Extract title from XML if available (prefer <title>, fallback to <id>)
+    let title = 'Untitled chat';
+    const lastAssistant = [...history].reverse().find(m => m.role === 'assistant');
+
+    if (lastAssistant) {
+      // Find all XML documents in the response
+      const xmlDocRegex = /<document[\s\S]*?<\/document>/g;
+      const xmlDocs = lastAssistant.content.match(xmlDocRegex) || [];
+      const processNames = [];
+
+      for (const doc of xmlDocs) {
+        const xmlTitleMatch = doc.match(/<title>([^<]+)<\/title>/);
+        const xmlIdMatch = doc.match(/<id>([^<]+)<\/id>/);
+
+        if (xmlTitleMatch) {
+          processNames.push(xmlTitleMatch[1].trim());
+        } else if (xmlIdMatch) {
+          processNames.push(xmlIdMatch[1].trim());
+        }
+      }
+
+      if (processNames.length > 0) {
+        title = processNames.join(' & ');
+      }
+    }
+
+    // Fallback to first user message if no XML found
+    if (title === 'Untitled chat') {
+      const firstUser = history.find(m => m.role === 'user');
+      if (firstUser) {
+        title = firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 55) + (firstUser.content.length > 55 ? '…' : '');
+      }
+    }
 
     const provider = document.getElementById('llm-provider').value;
     const mode = document.getElementById('context-mode').value;
@@ -700,7 +729,12 @@ function createStreamBubble() {
   div.appendChild(avatar);
   div.appendChild(bubble);
   msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
+
+  // Auto-scroll only if user is near bottom
+  const isNearBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 200;
+  if (isNearBottom) {
+    msgs.scrollTop = msgs.scrollHeight;
+  }
 
   return { bubble, textContainer, xmlContainer, cursor };
 }
@@ -760,7 +794,11 @@ function updateStreamDisplay(bubble, fullText) {
     }
   }
 
-  msgs.scrollTop = msgs.scrollHeight;
+  // Auto-scroll only if user is near bottom (within 200px)
+  const isNearBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 200;
+  if (isNearBottom) {
+    msgs.scrollTop = msgs.scrollHeight;
+  }
 }
 
 function renderMarkdown(text) {
