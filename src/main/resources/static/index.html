@@ -113,19 +113,19 @@
             <div class="sc-footer">Uses the hybrid human-system task pattern. The LLM call is made inside a Groovy action via async.run and results are written back with setData. Demonstrates Petriflow's AI integration capability.</div>
           </div>
 
-          <!-- 4. Order & Invoice (inter-process) -->
+          <!-- 4. Dynamic List — Linked Processes -->
           <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should consist of two separate but linked processes: an Order process and an Invoice process. In the Order process, an authenticated user creates a purchase order by filling in a subject (required), supplier name (required), and any relevant notes. After the order is submitted and approved by a manager, it moves to a sent state where a bulk approval view becomes available — the order stays open and waits to receive invoices linked to it. In the Invoice process, a supplier or internal user registers an invoice by filling in an invoice amount (required), uploading the invoice file (required), and selecting which order this invoice belongs to (required — a dropdown dynamically populated with existing orders). After the invoice is registered, it appears embedded inside the Order's bulk approval view, where the order owner can review and approve all linked invoices together. When a new invoice is registered and linked to an order, the order case is automatically notified and the invoice approval panel refreshes in real time. The order owner can approve or reject individual invoices directly from within the order view.">
-            <div class="sc-header"><div class="sc-icon">🔗</div>Order &amp; Invoice — Linked Processes</div>
-            <div class="sc-desc">A two-process application where orders and invoices are managed as separate but linked cases. Invoices register themselves against an order, which then displays all linked invoices in an embedded bulk approval panel.</div>
+               data-prompt="The application should consist of two separate but linked processes: a List process and an Item process. The List process contains a single permanently open task with a taskRef panel and an Add button. When the user clicks Add, a new Item case is created automatically and its task is immediately embedded as an inline editable panel inside the List task — the user can fill in the item fields directly without navigating away. Each click of Add creates one more Item case and adds its task panel to the list. The Item process is a simple form with a name (required), a description, and a numeric value field. The item task uses the system role so it can be embedded and kept alive inside the List taskRef panel. The List process must be internal — authenticated users only. There is no approval step, no routing, and no end state — the list stays permanently open so items can be added and edited at any time.">
+            <div class="sc-header"><div class="sc-icon">📝</div>Dynamic List — Linked Processes</div>
+            <div class="sc-desc">A two-process application where a List case dynamically creates and embeds Item cases inline. Clicking Add in the list spawns a new Item process and immediately shows its editable form as an embedded panel — no navigation required.</div>
             <div class="sc-bullets">
-              <div class="sc-bullet">Order process: create, approve, and track a purchase order</div>
-              <div class="sc-bullet">Invoice process: register an invoice and link it to an existing order</div>
-              <div class="sc-bullet">Linking is done via a dropdown dynamically populated from live order cases</div>
-              <div class="sc-bullet">Order is notified automatically when a new invoice is linked — panel refreshes in real time</div>
-              <div class="sc-bullet">Order owner reviews and approves all linked invoices from a single embedded view</div>
+              <div class="sc-bullet">List process has a permanent task with an Add button and an embedded taskRef panel</div>
+              <div class="sc-bullet">Clicking Add creates a new Item case and adds its task to the embedded list instantly</div>
+              <div class="sc-bullet">Each item is a separate process case — editable inline from the list view</div>
+              <div class="sc-bullet">Item process uses a system-role task so it stays alive and embedded indefinitely</div>
+              <div class="sc-bullet">No approval, no routing — the list stays open for continuous editing</div>
             </div>
-            <div class="sc-footer">Demonstrates Petriflow inter-process communication using caseRef, taskRef, and the reactive data event set pattern. Two independent processes that stay in sync automatically.</div>
+            <div class="sc-footer">Demonstrates the button field + createCase + taskRef inter-process pattern. The simplest form of Petriflow inter-process communication — one process dynamically spawning and embedding instances of another.</div>
           </div>
 
           <!-- 5. Bug Report Lifecycle -->
@@ -158,6 +158,20 @@
             <div class="sc-footer">If either reviewer rejects, the submitter is notified by email and can revise and resubmit. Uses reset arcs to clear parallel branch tokens on rejection. Status visible at all times via a persistent detail view.</div>
           </div>
 
+
+          <div class="suggestion-chip" onclick="fillSuggestion(this)"
+               data-prompt="The application consists of two separate processes: Order and Invoice. Order process — internal, authenticated users only. A user creates an order by filling in a subject (required), supplier name (required), order date (required), and notes. After submission, a manager reviews and either approves or rejects with a mandatory comment. If rejected, the order loops back to the submitter for correction and resubmission. If approved, the order moves to an open state where it waits for invoices — this task must stay permanently open so invoices can be linked at any time. The order has a persistent status view showing current state, manager comment, and all linked invoices embedded inline via a taskRef panel. Invoice process — internal, authenticated users only. A user registers an invoice by filling in invoice number (required), amount (required), invoice date (required), and uploading the invoice file (required). The invoice must be linked to an existing order — this is done via a caseRef or enumeration_map field dynamically populated with approved orders. After the invoice is registered, the order it belongs to is automatically notified: a system action in the invoice process finds the linked order case and sets a field on it to trigger a refresh of the embedded invoice panel. The invoice then waits for approval. The order owner reviews all linked invoices from within the order's permanent task and approves or rejects each one individually. Both processes are completely independent namespaces — roles, fields and transitions must be declared separately in each process XML. Cross-process communication happens only through action code using findCase, setData, assignTask, and finishTask.">
+            <div class="sc-header"><div class="sc-icon">🔗</div>Order &amp; Invoice</div>
+            <div class="sc-desc">A two-process application where orders and invoices are managed as separate but linked cases. Invoices register themselves against an order, which then displays all linked invoices embedded inline via a permanent taskRef approval panel.</div>
+            <div class="sc-bullets">
+              <div class="sc-bullet">Order process: create, manager approval loop, permanent open task with embedded invoice panel</div>
+              <div class="sc-bullet">Invoice process: register against an approved order, permanently open approval task</div>
+              <div class="sc-bullet">Linking done via enumeration_map dynamically populated with approved orders using activePlaces token check</div>
+              <div class="sc-bullet">Invoice notifies Order: system task in Order as stable setData target, task ID appended directly to taskRef</div>
+              <div class="sc-bullet">Order owner reviews and approves all linked invoices from a single embedded panel</div>
+            </div>
+            <div class="sc-footer">Demonstrates the IPC-0 cross-process taskRef pattern — the only correct approach for embedding tasks from one process into another. Uses permanently alive system task as setData target and direct taskRef append.</div>
+          </div>
         </div>
       </div>
     </div><!-- /#messages -->
