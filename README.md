@@ -50,7 +50,7 @@ cp .env.example .env
 # ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY
 
 # 3. Start
-docker-compose up
+docker-compose up --build
 ```
 
 Open `http://localhost:8080`
