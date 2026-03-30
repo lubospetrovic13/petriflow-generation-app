@@ -325,9 +325,9 @@ userService.loggedOrSystem.transformToUser()
 
 // Case
 def c  = findCase  { it.stringId.eq(id) }
-def cs = findCases { it.processIdentifier.eq("process_id") }
-def c  = createCase("child_id", "Title", "blue")  // full
-def c  = createCase("child_id")                   // minimal
+def cs = findCases { it.processIdentifier.eq(workspace + "process_id") }  // ALWAYS workspace + prefix — never a bare string literal
+def c  = createCase(workspace + "child_id", "Title", "blue")  // full — workspace + required
+def c  = createCase(workspace + "child_id")                   // minimal — workspace + required
 def val = c.getFieldValue("field_id")             // alt to c.dataSet["field_id"]?.value
 
 // Check token state of a place on a case — use activePlaces, NOT getPlace() which does not exist
@@ -460,7 +460,7 @@ Always-accessible status → Detail task + read arc (Pattern 16)
 | 31 | `workflowService.deleteCase(stringId)` — deletes case programmatically |
 | 32 | `findTasks { it.caseId.in(list) }` — `.in()` filters across multiple case IDs |
 | 33 | `case.getFieldValue("id")` — alternative to `case.dataSet["id"]?.value` |
-| 34 | `workspace` — eTask-specific prefix variable; use literal process ID on standalone NAE |
+| 34 | **ALWAYS use `workspace + "process_id"` in `findCases`, `findTasks`, and `createCase`** — never a bare string literal for process identifiers. `workspace` is an eTask runtime variable that prefixes all process IDs. Omitting it causes silent lookup failures (no cases found, no tasks found) with no error message. This applies to every cross-process call without exception. |
 | 35 | **Empty `<caseEvents>` block causes eTask import error** — if there are no real actions, omit the entire `<caseEvents>` block. A block with only a comment or empty action is invalid. |
 | 36 | **Permanently open task: read arc only, no outgoing arc** — a task that must never finish needs only a `read` arc from a place with `tokens=1`. Never add a regular arc from the same place — it makes the task finishable and breaks the pattern. |
 | 37 | **`taskRef` `<init>` is for static single-task embeds only** — for a dynamic list built via button+createCase, leave `<init>` empty. Set the taskRef value dynamically via `change field value { list + tid }` in the button action. |
@@ -538,7 +538,7 @@ Always-accessible status → Detail task + read arc (Pattern 16)
 <data type="number"><id>go_approve</id><title>Go Approve</title><init>0</init></data>
 <data type="number"><id>go_reject</id><title>Go Reject</title><init>0</init></data>
 <data type="enumeration_map"><id>decision</id><title>Decision</title>
-  <options><option key="approve">Approve</option><option key="reject">Reject</option></options>
+<options><option key="approve">Approve</option><option key="reject">Reject</option></options>
 </data>
 <place><id>approved</id><x>880</x><y>112</y><label>Approved</label><tokens>0</tokens><static>false</static></place>
 <place><id>rejected</id><x>880</x><y>304</y><label>Rejected</label><tokens>0</tokens><static>false</static></place>
@@ -622,10 +622,10 @@ Each review branch has routing number fields + variable arcs. Apply Pattern 2 ro
 ```xml
 <data type="number"><id>legal_approve</id><title>Legal Approve</title><init>0</init></data>
 <data type="number"><id>legal_reject</id><title>Legal Reject</title><init>0</init></data>
-<!-- same for fin_approve, fin_reject -->
+        <!-- same for fin_approve, fin_reject -->
 <arc><id>arc_la</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>legal_done</destinationId><multiplicity>0</multiplicity><reference>legal_approve</reference></arc>
 <arc><id>arc_lr</id><type>regular</type><sourceId>review_legal</sourceId><destinationId>rejected</destinationId>  <multiplicity>0</multiplicity><reference>legal_reject</reference></arc>
-<!-- same arcs for review_finance → fin_approve/fin_reject -->
+        <!-- same arcs for review_finance → fin_approve/fin_reject -->
 ```
 
 > ⚠️ If either branch rejects, its token goes to `rejected` — other branch token gets stuck in `join`. Expected: rejection terminates immediately.
@@ -678,12 +678,12 @@ else                             { change toA value { 0 }; change toB value { 1 
 <data type="number"><id>from_legal</id>   <title>From Legal</title>   <init>1</init></data>
 <data type="number"><id>from_finance</id> <title>From Finance</title> <init>1</init></data>
 <data type="multichoice_map"><id>departments</id><title>Departments</title>
-  <options><option key="legal">Legal</option><option key="finance">Finance</option></options>
+<options><option key="legal">Legal</option><option key="finance">Finance</option></options>
 </data>
-<!-- OR-split arcs -->
+        <!-- OR-split arcs -->
 <arc><id>a_vl</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_legal_in</destinationId>  <multiplicity>0</multiplicity><reference>to_legal</reference></arc>
 <arc><id>a_vf</id><type>regular</type><sourceId>t_register</sourceId><destinationId>p_finance_in</destinationId><multiplicity>0</multiplicity><reference>to_finance</reference></arc>
-<!-- OR-join incoming variable arcs -->
+        <!-- OR-join incoming variable arcs -->
 <arc><id>a_jl</id><type>regular</type><sourceId>p_legal_out</sourceId>  <destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_legal</reference></arc>
 <arc><id>a_jf</id><type>regular</type><sourceId>p_finance_out</sourceId><destinationId>t_final</destinationId><multiplicity>1</multiplicity><reference>from_finance</reference></arc>
 ```
@@ -706,12 +706,12 @@ Use when N branches is dynamic. Pre-load `go_count` tokens into merge place; eac
 ```xml
 <data type="number"><id>go_count</id><title>Branch Count</title><init>0</init></data>
 <data type="number"><id>to_a</id><title>To A</title><init>0</init></data>
-<!-- OR-split + pre-load -->
+        <!-- OR-split + pre-load -->
 <arc><id>a_ta</id>   <type>regular</type><sourceId>t_register</sourceId><destinationId>p_a</destinationId>    <multiplicity>0</multiplicity><reference>to_a</reference></arc>
 <arc><id>a_pre</id>  <type>regular</type><sourceId>t_register</sourceId><destinationId>p_merge</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
-<!-- Each branch task → merge -->
+        <!-- Each branch task → merge -->
 <arc><id>a_am</id>   <type>regular</type><sourceId>task_a</sourceId>   <destinationId>p_merge</destinationId><multiplicity>1</multiplicity></arc>
-<!-- join -->
+        <!-- join -->
 <arc><id>a_mf</id>   <type>regular</type><sourceId>p_merge</sourceId>  <destinationId>t_final</destinationId><multiplicity>0</multiplicity><reference>go_count</reference></arc>
 ```
 
@@ -807,7 +807,7 @@ def current = (vote_count.value as Integer) ?: 0
 change vote_count value { (current + 1) as Double }
 if (current + 1 >= 2) {
   findTasks { it.caseId.eq(useCase.stringId).and(it.transitionId.in(["review_a","review_b","review_c"])) }
-    .each { t -> cancelTask(t) }
+          .each { t -> cancelTask(t) }
 }
 ```
 
@@ -862,7 +862,7 @@ Both system tasks share `p0` — only the one fired by action consumes the token
 <transition><id>route_to_legal</id><x>496</x><y>112</y><label>To Legal</label>
   <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 <transition><id>route_to_pr</id><x>496</x><y>304</y><label>To PR</label>
-  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef></transition>
 ```
 
 ```groovy
@@ -884,12 +884,12 @@ async.run {
 ```xml
 <data type="taskRef"><id>form_ref</id><title/><init>form_task</init></data>
 <transition><id>form_task</id><x>304</x><y>16</y><label>Form</label>
-  <roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
-  <dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
-    <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
-      <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
-    </dataRef>
-  </dataGroup>
+<roleRef><id>system</id><logic><perform>true</perform></logic></roleRef>
+<dataGroup><id>form_group</id><cols>2</cols><layout>grid</layout><title>Request</title>
+  <dataRef><id>field_id</id><logic><behavior>editable</behavior></logic>
+    <layout><x>0</x><y>0</y><rows>1</rows><cols>2</cols><template>material</template><appearance>outline</appearance></layout>
+  </dataRef>
+</dataGroup>
 </transition>
 <place><id>p_form</id><x>112</x><y>16</y><label>Form</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_form</id><type>read</type><sourceId>p_form</sourceId><destinationId>form_task</destinationId><multiplicity>1</multiplicity></arc>
@@ -957,7 +957,7 @@ Use when a task must stay open indefinitely — a dynamic list, a dashboard, or 
 ```xml
 <place><id>p_list</id><x>112</x><y>208</y><label>List</label><tokens>1</tokens><static>false</static></place>
 <arc><id>arc_read</id><type>read</type><sourceId>p_list</sourceId><destinationId>t_list</destinationId><multiplicity>1</multiplicity></arc>
-<!-- NO outgoing arc from t_list -->
+        <!-- NO outgoing arc from t_list -->
 ```
 
 > ⚠️ **Never pair a regular arc with a read arc on a permanently open task.**
@@ -1000,7 +1000,7 @@ Token arrives when case reaches open state, read arc keeps task alive forever:
 ```xml
 <arc><id>a1</id><type>regular</type><sourceId>t_approve</sourceId><destinationId>p_panel</destinationId><multiplicity>0</multiplicity><reference>go_approve</reference></arc>
 <arc><id>a2</id><type>read</type><sourceId>p_panel</sourceId><destinationId>t_invoice_panel</destinationId><multiplicity>1</multiplicity></arc>
-<!-- t_invoice_panel: system role, no dataGroup — only a setData target, never shown to users -->
+        <!-- t_invoice_panel: system role, no dataGroup — only a setData target, never shown to users -->
 ```
 
 **Step 2 — Process B (Invoice): append this task's ID directly to Process A's taskRef.**
@@ -1008,16 +1008,16 @@ Call inside `async.run` from register finish post:
 ```groovy
 parent_id: f.parent_id;
 async.run {
-    def orderCase = findCase { it._id.eq(parent_id.value) }
-    if (orderCase) {
-        def myTask = findTask { it.transitionId.eq("invoice_approval").and(it.caseId.eq(useCase.stringId)) }
-        if (myTask) {
-            def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
-            setData("t_invoice_panel", orderCase, [
-                "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
-            ])
-        }
+  def orderCase = findCase { it._id.eq(parent_id.value) }
+  if (orderCase) {
+    def myTask = findTask { it.transitionId.eq("invoice_approval").and(it.caseId.eq(useCase.stringId)) }
+    if (myTask) {
+      def currentList = orderCase.dataSet?.get("linked_invoices")?.value ?: []
+      setData("t_invoice_panel", orderCase, [
+              "linked_invoices": ["value": currentList + myTask.stringId, "type": "taskRef"]
+      ])
     }
+  }
 }
 ```
 
@@ -1077,7 +1077,7 @@ setData("t1", parent, ["new_invoice_id": ["value": invoice_id.value, "type": "te
 parent_id: f.parent_id;
 change parent_id options {
   findCases { it.processIdentifier.eq(workspace + "order") }
-    .collectEntries { [(it.stringId): "Order: " + it.stringId] }
+          .collectEntries { [(it.stringId): "Order: " + it.stringId] }
 }
 ```
 
@@ -1148,8 +1148,8 @@ make iban, hidden   on t_submit when { return contract_type.value != "bank_trans
 ```xml
 <data type="i18n"><id>div_1</id><title>Section</title><init>Section</init></data>
 <dataRef><id>div_1</id><logic><behavior>editable</behavior></logic>
-  <layout><x>0</x><y>3</y><rows>1</rows><cols>4</cols><template>material</template><appearance>outline</appearance></layout>
-  <component><name>divider</name></component></dataRef>
+<layout><x>0</x><y>3</y><rows>1</rows><cols>4</cols><template>material</template><appearance>outline</appearance></layout>
+<component><name>divider</name></component></dataRef>
 ```
 
 **Dynamic options from external API:**

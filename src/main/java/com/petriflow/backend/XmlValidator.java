@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
 
 /**
  * Validates generated Petriflow XML against:
- * 1. XSD schema (petriflow.schema.xsd)
- * 2. Six deterministic "gotcha" patterns from petriflow_reference.md
+ * 1. Well-formedness (mismatched tags, unclosed elements — catches e.g. <y>0</x>)
+ * 2. XSD schema (petriflow.schema.xsd)
+ * 3. Eleven deterministic "gotcha" patterns from petriflow_reference.md
  */
 public class XmlValidator {
 
@@ -53,13 +54,42 @@ public class XmlValidator {
             return new ValidationResult(errors); // No errors, not XML content
         }
 
-        // 1. XSD validation
+        // 1. Well-formedness check — must pass before XSD or DOM-based checks
+        errors.addAll(checkWellFormedness(xml));
+        if (!errors.isEmpty()) {
+            return new ValidationResult(errors); // No point running further checks on broken XML
+        }
+
+        // 2. XSD validation
         errors.addAll(validateAgainstXsd(xml));
 
-        // 2. Gotcha pattern checks
+        // 3. Gotcha pattern checks
         errors.addAll(checkGotchaPatterns(xml));
 
         return new ValidationResult(errors);
+    }
+
+    /**
+     * Checks basic XML well-formedness using a non-validating DOM parser.
+     * This catches mismatched tags (e.g. <y>0</x>), unclosed elements, etc.
+     * Must run before any DOM-based checks — they silently swallow parse failures.
+     */
+    private static List<String> checkWellFormedness(String xml) {
+        List<String> errors = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setValidating(false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            builder.setErrorHandler(null); // suppress default stderr output
+            builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+        } catch (SAXException e) {
+            errors.add("XML is not well-formed: " + e.getMessage() +
+                    " — check for mismatched tags (e.g. <y>0</x>), unclosed elements, or invalid characters");
+        } catch (Exception e) {
+            errors.add("XML well-formedness check failed: " + e.getMessage());
+        }
+        return errors;
     }
 
     /**
@@ -126,6 +156,15 @@ public class XmlValidator {
 
         // 8. Check for assignTask/finishTask on human tasks (C3 violation)
         errors.addAll(checkAssignTaskOnHumanTasks(xml));
+
+        // 9. Check for c.getPlace() usage (does not exist on Case)
+        errors.addAll(checkGetPlaceUsage(xml));
+
+        // 10. Check for trigger field + UUID anti-pattern (IPC anti-pattern)
+        errors.addAll(checkTriggerFieldUuidPattern(xml));
+
+        // 11. Check for findCase() inside .findAll block (N+1 anti-pattern)
+        errors.addAll(checkFindCaseInFindAll(xml));
 
         return errors;
     }
