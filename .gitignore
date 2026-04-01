@@ -6,6 +6,7 @@
 /run-log.jsonl
 /petriflow-chat.html
 /chats.json
+/settings.json
 *.log
 /TODO
 
