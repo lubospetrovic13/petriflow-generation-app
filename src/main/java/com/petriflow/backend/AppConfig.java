@@ -84,6 +84,9 @@ public class AppConfig {
     @Value("${chat.storage.path:chats.json}")
     public String chatStoragePath;
 
+    @Value("${settings.storage.path:settings.json}")
+    public String settingsStoragePath;
+
     // ── GitHub ────────────────────────────────────────────────────────────────
 
     @Value("${github.token:}")
@@ -94,6 +97,14 @@ public class AppConfig {
 
     @Value("${github.repo:}")
     public String githubRepo;
+
+    // ── eTask ─────────────────────────────────────────────────────────────────
+
+    @Value("${etask.email:}")
+    public String eTaskEmail;
+
+    @Value("${etask.password:}")
+    public String eTaskPassword;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

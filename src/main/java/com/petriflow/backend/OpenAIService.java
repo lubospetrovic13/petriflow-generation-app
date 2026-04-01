@@ -167,7 +167,7 @@ public class OpenAIService {
 
                 // Validate XML and retry if errors found
                 String finalXml = fullText.toString();
-                XmlValidator.ValidationResult validation = XmlValidator.validate(finalXml);
+                XmlValidator.ValidationResult validation = XmlValidator.validate(finalXml, config);
 
                 if (!validation.isValid) {
                     log.warn("XML validation failed with {} errors, attempting retry", validation.errors.size());

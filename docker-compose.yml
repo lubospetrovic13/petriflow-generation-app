@@ -4,28 +4,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
-      - CONTEXT_MODE=${CONTEXT_MODE:-full}
-      - EMBED_PROVIDER=${EMBED_PROVIDER:-openai}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-5}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      - CLAUDE_MAX_OUTPUT_TOKENS=${CLAUDE_MAX_OUTPUT_TOKENS:-32000}
-      - OPENAI_MAX_OUTPUT_TOKENS=${OPENAI_MAX_OUTPUT_TOKENS:-16000}
-      - GEMINI_MAX_OUTPUT_TOKENS=${GEMINI_MAX_OUTPUT_TOKENS:-65536}
-      - CLAUDE_THINKING_ENABLED=${CLAUDE_THINKING_ENABLED:-false}
-      - CLAUDE_THINKING_BUDGET=${CLAUDE_THINKING_BUDGET:-4000}
-      - GEMINI_THINKING_BUDGET=${GEMINI_THINKING_BUDGET:-0}
-      - RAG_TOP_K=${RAG_TOP_K:-14}
-      - RAG_ALWAYS_INCLUDE=${RAG_ALWAYS_INCLUDE:-7.,8.,9.}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_USERNAME=${GITHUB_USERNAME}
-      - GITHUB_REPO=${GITHUB_REPO}
       - CHAT_STORAGE_PATH=/app/chats.json
+      - SETTINGS_STORAGE_PATH=/app/settings.json
     volumes:
       - ./chats.json:/app/chats.json
+      - ./settings.json:/app/settings.json
       - ./data:/app/data
     restart: unless-stopped

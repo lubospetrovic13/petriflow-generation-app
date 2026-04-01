@@ -1196,30 +1196,36 @@ function buildXmlActions(xmlBlocks) {
 
     const dlBtn = document.createElement('button');
     dlBtn.className = 'xml-btn primary';
-    dlBtn.innerHTML = '⬇ Download XML';
+    dlBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download XML';
     dlBtn.onclick = () => downloadXml(xmlContent);
 
     const builderBtn = document.createElement('button');
     builderBtn.className = 'xml-btn open-builder';
-    builderBtn.innerHTML = '🔗 Open in Builder';
+    builderBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Open in Builder';
     builderBtn.onclick = async () => {
       builderBtn.disabled = true;
       builderBtn.innerHTML = '⏳ Uploading…';
       await openInBuilder(xmlContent);
       builderBtn.disabled = false;
-      builderBtn.innerHTML = '🔗 Open in Builder';
+      builderBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Open in Builder';
     };
 
-    const etaskBtn = document.createElement('a');
+    const etaskBtn = document.createElement('button');
     etaskBtn.className = 'xml-btn secondary';
-    etaskBtn.innerHTML = '▶ Test in eTask';
-    etaskBtn.href = 'https://etask.netgrif.cloud/';
-    etaskBtn.target = '_blank'; etaskBtn.rel = 'noopener';
+    etaskBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Open in eTask';
+    etaskBtn.onclick = async function() {
+      etaskBtn.disabled = true;
+      etaskBtn.innerHTML = '⏳ Uploading…';
+      await uploadAndOpenEtask(xmlContent, etaskBtn);
+    };
 
+    var btns = document.createElement('div');
+    btns.className = 'xml-actions-btns';
+    btns.appendChild(dlBtn);
+    btns.appendChild(builderBtn);
+    btns.appendChild(etaskBtn);
     row.appendChild(label);
-    row.appendChild(dlBtn);
-    row.appendChild(builderBtn);
-    row.appendChild(etaskBtn);
+    row.appendChild(btns);
     wrapper.appendChild(row);
   });
 
@@ -1316,3 +1322,203 @@ document.addEventListener('DOMContentLoaded', function() {
     updateScrollButtons();
   }
 });
+
+// ── Settings modal ─────────────────────────────────────────────────────────
+
+var settingsLoaded = false;
+
+function openSettings() {
+  document.getElementById('settings-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  if (!settingsLoaded) loadSettings();
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function handleSettingsOverlayClick(e) {
+  if (e.target.id === 'settings-overlay') closeSettings();
+}
+
+async function loadSettings() {
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings');
+    if (!resp.ok) return;
+    var s = await resp.json();
+    fillSettingsForm(s);
+    settingsLoaded = true;
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+function fillSettingsForm(s) {
+  setInput('s-anthropicApiKey', s.anthropicApiKey || '');
+  setInput('s-openaiApiKey',    s.openaiApiKey    || '');
+  setInput('s-geminiApiKey',    s.geminiApiKey    || '');
+  setInput('s-githubToken',     s.githubToken     || '');
+  setInput('s-githubUsername',  s.githubUsername  || '');
+  setInput('s-githubRepo',      s.githubRepo      || '');
+  setInput('s-eTaskEmail',    s.eTaskEmail    || '');
+  setInput('s-eTaskPassword', s.eTaskPassword ? '••••••••' : '');
+  setInput('s-claudeModel',     s.claudeModel     || '');
+  setInput('s-openaiModel',     s.openaiModel     || '');
+  setInput('s-geminiModel',     s.geminiModel     || '');
+  setInput('s-claudeMaxTokens',      s.claudeMaxTokens      != null ? s.claudeMaxTokens      : '');
+  setInput('s-openaiMaxTokens',      s.openaiMaxTokens      != null ? s.openaiMaxTokens      : '');
+  setInput('s-geminiMaxTokens',      s.geminiMaxTokens      != null ? s.geminiMaxTokens      : '');
+  setInput('s-claudeThinkingBudget', s.claudeThinkingBudget != null ? s.claudeThinkingBudget : '');
+  setInput('s-geminiThinkingBudget', s.geminiThinkingBudget != null ? s.geminiThinkingBudget : '');
+  setInput('s-ragTopK',              s.ragTopK              != null ? s.ragTopK              : '');
+  setInput('s-ragAlwaysInclude',     s.ragAlwaysInclude     || '');
+
+  var thinking = document.getElementById('s-claudeThinkingEnabled');
+  if (thinking) thinking.checked = !!s.claudeThinkingEnabled;
+
+  var embed = document.getElementById('s-embedProvider');
+  if (embed && s.embedProvider) embed.value = s.embedProvider;
+
+  updateKeyStatus('ks-claude',  s.anthropicApiKey || '');
+  updateKeyStatus('ks-openai',  s.openaiApiKey    || '');
+  updateKeyStatus('ks-gemini',  s.geminiApiKey    || '');
+  updateKeyStatus('ks-github',  s.githubToken     || '');
+  // eTask: email is plain text (not masked), so synthesize a masked-style string for updateKeyStatus
+  updateKeyStatus('ks-etask', s.eTaskEmail && s.eTaskEmail.length > 0 ? 'configured***' : '');
+
+  updateSettingsBadge(s);
+}
+
+function setInput(id, value) {
+  var el = document.getElementById(id);
+  if (el) el.value = String(value);
+}
+
+function updateKeyStatus(id, value) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var isSet = value && value.indexOf('***') !== -1;
+  el.className = 'key-status ' + (isSet ? 'set' : 'unset');
+  el.title = isSet ? 'Key is configured' : 'Not configured';
+}
+
+function updateSettingsBadge(s) {
+  var badge = document.getElementById('settings-badge');
+  if (!badge) return;
+  var hasAny = (s.anthropicApiKey && s.anthropicApiKey.indexOf('***') !== -1) ||
+      (s.openaiApiKey    && s.openaiApiKey.indexOf('***')    !== -1) ||
+      (s.geminiApiKey    && s.geminiApiKey.indexOf('***')    !== -1);
+  badge.style.display = hasAny ? 'none' : 'block';
+}
+
+async function saveSettings() {
+  var btn = document.querySelector('.btn-settings-save');
+  var status = document.getElementById('settings-save-status');
+  btn.disabled = true;
+  status.textContent = 'Saving…';
+  status.className = 'settings-save-status';
+
+  var payload = {};
+  var fields = [
+    's-anthropicApiKey', 's-openaiApiKey', 's-geminiApiKey',
+    's-githubToken', 's-githubUsername', 's-githubRepo',
+    's-claudeModel', 's-openaiModel', 's-geminiModel',
+    's-ragAlwaysInclude', 's-embedProvider',
+    's-eTaskEmail'
+  ];
+  var keyMap = {
+    's-anthropicApiKey': 'anthropicApiKey', 's-openaiApiKey': 'openaiApiKey',
+    's-geminiApiKey': 'geminiApiKey', 's-githubToken': 'githubToken',
+    's-githubUsername': 'githubUsername', 's-githubRepo': 'githubRepo',
+    's-claudeModel': 'claudeModel', 's-openaiModel': 'openaiModel',
+    's-geminiModel': 'geminiModel', 's-ragAlwaysInclude': 'ragAlwaysInclude',
+    's-embedProvider': 'embedProvider',
+    's-eTaskEmail': 'eTaskEmail'
+  };
+  fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el.value !== '') payload[keyMap[id]] = el.value;
+  });
+
+  // eTask password — only send if user typed something new (not placeholder dots)
+  var eTaskPwEl = document.getElementById('s-eTaskPassword');
+  if (eTaskPwEl && eTaskPwEl.value !== '' && eTaskPwEl.value.indexOf('•') === -1) {
+    payload['eTaskPassword'] = eTaskPwEl.value;
+  }
+
+  var numFields = {
+    's-claudeMaxTokens': 'claudeMaxTokens', 's-openaiMaxTokens': 'openaiMaxTokens',
+    's-geminiMaxTokens': 'geminiMaxTokens', 's-claudeThinkingBudget': 'claudeThinkingBudget',
+    's-geminiThinkingBudget': 'geminiThinkingBudget', 's-ragTopK': 'ragTopK'
+  };
+  Object.keys(numFields).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el.value !== '') payload[numFields[id]] = Number(el.value);
+  });
+
+  var thinkingEl = document.getElementById('s-claudeThinkingEnabled');
+  if (thinkingEl) payload['claudeThinkingEnabled'] = thinkingEl.checked;
+
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      throw new Error(err.error || ('HTTP ' + resp.status));
+    }
+    settingsLoaded = false;
+    await loadSettings();
+    status.textContent = '✓ Saved successfully';
+    status.className = 'settings-save-status ok';
+    setTimeout(function() { status.textContent = ''; status.className = 'settings-save-status'; }, 3000);
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+    status.className = 'settings-save-status err';
+  }
+  btn.disabled = false;
+}
+
+// ── Upload & Open in eTask ────────────────────────────────────────────────
+
+async function uploadAndOpenEtask(xmlContent, btn) {
+  var formatted = '<?xml version="1.0" encoding="UTF-8"?>\n' + formatXml(xmlContent);
+  try {
+    var resp = await fetch('http://localhost:8080/api/upload-etask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: formatted
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok) {
+      var msg = data.error || ('HTTP ' + resp.status);
+      alert('eTask upload failed: ' + msg);
+      btn.disabled = false;
+      btn.innerHTML = '▶ Upload & Open in eTask';
+      return;
+    }
+    // Open eTask cases page directly — if not logged in, eTask will redirect to login
+    // and return to /portal/cases after successful authentication.
+    window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+    btn.disabled = false;
+    btn.innerHTML = '▶ Upload & Open in eTask';
+  } catch (e) {
+    alert('eTask upload error: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '▶ Upload & Open in eTask';
+  }
+}
+
+// Load settings on startup to show/hide badge
+(async function initSettings() {
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings');
+    if (resp.ok) {
+      var s = await resp.json();
+      updateSettingsBadge(s);
+    }
+  } catch (_) {}
+})();

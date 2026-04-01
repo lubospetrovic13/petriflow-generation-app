@@ -22,11 +22,12 @@ public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
-    @Autowired private AppConfig     config;
-    @Autowired private ClaudeService claudeService;
-    @Autowired private OpenAIService openAIService;
-    @Autowired private GeminiService geminiService;
-    @Autowired private RagService    ragService;
+    @Autowired private AppConfig      config;
+    @Autowired private ClaudeService  claudeService;
+    @Autowired private OpenAIService  openAIService;
+    @Autowired private GeminiService  geminiService;
+    @Autowired private RagService     ragService;
+    @Autowired private SettingsService settingsService;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -94,9 +95,9 @@ public class ChatController {
         }
 
         return ResponseEntity.ok(Map.of(
-            "status", "ok",
-            "provider", config.llmProvider,
-            "mode", config.contextMode
+                "status", "ok",
+                "provider", config.llmProvider,
+                "mode", config.contextMode
         ));
     }
 
@@ -105,12 +106,40 @@ public class ChatController {
      */
     @GetMapping("/health")
     public ResponseEntity<?> health() {
-        return ResponseEntity.ok(Map.of(
-                "status",      "ok",
-                "llmProvider", config.llmProvider,
-                "model",       config.activeLlmModel(),
-                "contextMode", config.contextMode
-        ));
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("status",      "ok");
+        info.put("llmProvider", config.llmProvider);
+        info.put("model",       config.activeLlmModel());
+        info.put("contextMode", config.contextMode);
+        info.put("keysConfigured", settingsService.keysConfigured());
+        return ResponseEntity.ok(info);
+    }
+
+    /**
+     * GET /api/settings
+     * Returns current settings (API keys masked).
+     */
+    @GetMapping("/settings")
+    public ResponseEntity<?> getSettings() {
+        return ResponseEntity.ok(settingsService.getSettings());
+    }
+
+    /**
+     * POST /api/settings
+     * Saves and applies new settings at runtime.
+     */
+    @PostMapping("/settings")
+    public ResponseEntity<?> saveSettings(@RequestBody Map<String, Object> body) {
+        try {
+            settingsService.saveSettings(body);
+            return ResponseEntity.ok(Map.of(
+                    "status", "ok",
+                    "keysConfigured", settingsService.keysConfigured()
+            ));
+        } catch (Exception e) {
+            log.error("Failed to save settings: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
     }
 
     /**
@@ -137,11 +166,11 @@ public class ChatController {
     public ResponseEntity<String> getGuide() {
         try {
             org.springframework.core.io.ClassPathResource res =
-                new org.springframework.core.io.ClassPathResource("guides/petriflow_guide.md");
+                    new org.springframework.core.io.ClassPathResource("guides/petriflow_guide.md");
             String content = new String(res.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             return ResponseEntity.ok()
-                .header("Access-Control-Allow-Origin", "*")
-                .body(content);
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(content);
         } catch (Exception e) {
             log.error("Guide load error: {}", e.getMessage());
             return ResponseEntity.internalServerError().body("Error loading guide: " + e.getMessage());
@@ -210,6 +239,204 @@ public class ChatController {
         }
     }
 
+
+    /**
+     * POST /api/upload-etask
+     * Authenticates with eTask (Basic Auth), uploads the XML process via
+     * POST /api/petrinet/import (multipart), and returns success.
+     * Credentials are read from AppConfig (set via Settings panel).
+     * The frontend then redirects the user to https://etask.netgrif.cloud/portal/cases
+     */
+    /**
+     * POST /api/upload-etask
+     * Login → import XML → return redirectUrl. No role assignment, no cleanup.
+     * (Validation + cleanup is handled by XmlValidator step 16 during generation.)
+     */
+    @PostMapping("/upload-etask")
+    public ResponseEntity<?> uploadEtask(@RequestBody String xmlContent) {
+        final String ETASK_BASE = "https://etask.netgrif.cloud";
+
+        if (!isSet(config.eTaskEmail) || !isSet(config.eTaskPassword)) {
+            return ResponseEntity.status(400).body(Map.of(
+                    "error", "eTask credentials not configured. Add your email and password in Settings."));
+        }
+
+        try {
+            String credentials = java.util.Base64.getEncoder().encodeToString(
+                    (config.eTaskEmail + ":" + config.eTaskPassword)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+
+            // Step 1: Authenticate
+            okhttp3.Request loginReq = new okhttp3.Request.Builder()
+                    .url(ETASK_BASE + "/api/auth/login")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .get().build();
+
+            try (okhttp3.Response loginResp = client.newCall(loginReq).execute()) {
+                if (!loginResp.isSuccessful()) {
+                    return ResponseEntity.status(401).body(Map.of(
+                            "error", "eTask authentication failed (HTTP " + loginResp.code()
+                                    + "). Check your email and password in Settings."));
+                }
+                log.info("eTask login OK for {}", config.eTaskEmail);
+            }
+
+            // Step 2: Prepare XML
+            String xmlToUpload = xmlContent.trim().startsWith("<?xml")
+                    ? xmlContent
+                    : "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlContent;
+
+            java.util.regex.Matcher idMatcher = java.util.regex.Pattern
+                    .compile("<id>([^<]+)</id>").matcher(xmlToUpload);
+            String processIdentifier = idMatcher.find() ? idMatcher.group(1).trim() : "process";
+
+            java.util.regex.Matcher verMatcher = java.util.regex.Pattern
+                    .compile("<version>([^<]+)</version>").matcher(xmlToUpload);
+            String processVersion = verMatcher.find() ? verMatcher.group(1).trim() : "1.0.0";
+
+            byte[] xmlBytes = xmlToUpload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+            // Step 3: Import
+            okhttp3.RequestBody filePart = okhttp3.RequestBody.create(
+                    xmlBytes, okhttp3.MediaType.get("application/octet-stream"));
+            okhttp3.MultipartBody multipart = new okhttp3.MultipartBody.Builder()
+                    .setType(okhttp3.MultipartBody.FORM)
+                    .addFormDataPart("file", processIdentifier + ".xml", filePart)
+                    .build();
+            okhttp3.Request importReq = new okhttp3.Request.Builder()
+                    .url(ETASK_BASE + "/api/petrinet/import")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .post(multipart).build();
+
+            try (okhttp3.Response importResp = client.newCall(importReq).execute()) {
+                String respBody = importResp.body() != null ? importResp.body().string() : "";
+                if (!importResp.isSuccessful()) {
+                    String reason = diagnoseImportFailure(client, credentials, ETASK_BASE,
+                            processIdentifier, processVersion, importResp.code());
+                    log.warn("eTask upload failed: HTTP {} — {}", importResp.code(), respBody);
+                    return ResponseEntity.status(importResp.code()).body(Map.of(
+                            "error", "eTask import failed: " + reason));
+                }
+                log.info("eTask upload OK for identifier={} version={}", processIdentifier, processVersion);
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "ok");
+            result.put("redirectUrl", "https://etask.netgrif.cloud/portal/cases");
+            result.put("email", config.eTaskEmail);
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("eTask upload error: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+
+    /**
+     * Diagnoses why a petrinet import failed.
+     * Checks if a net with same identifier+version already exists.
+     * Returns a human-readable reason string.
+     */
+    private String diagnoseImportFailure(OkHttpClient client, String credentials,
+                                         String base, String identifier, String version, int httpCode) {
+        try {
+            // Search for existing net with same identifier
+            String searchBody = mapper.writeValueAsString(Map.of("identifier", identifier));
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url(base + "/api/petrinet/search?page=0&size=5&sort=createdDate,desc")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .header("Content-Type", "application/json")
+                    .post(okhttp3.RequestBody.create(
+                            searchBody.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            okhttp3.MediaType.get("application/json")))
+                    .build();
+
+            try (okhttp3.Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful()) {
+                    return "HTTP " + httpCode + " from eTask (could not diagnose further).";
+                }
+                String body = resp.body() != null ? resp.body().string() : "{}";
+                com.fasterxml.jackson.databind.JsonNode json = mapper.readTree(body);
+                com.fasterxml.jackson.databind.JsonNode nets = json
+                        .path("_embedded").path("petriNetReferenceResources");
+
+                if (nets.isArray() && nets.size() > 0) {
+                    // Check if exact version already exists
+                    for (com.fasterxml.jackson.databind.JsonNode net : nets) {
+                        if (version.equals(net.path("version").asText(""))) {
+                            return "A process with identifier '" + identifier + "' version '" + version +
+                                    "' already exists in eTask. Bump the <version> in your XML and try again.";
+                        }
+                    }
+                    return "A process with identifier '" + identifier + "' exists but with a different version. " +
+                            "If eTask rejected this version, try bumping <version> in your XML.";
+                }
+            }
+        } catch (Exception e) {
+            log.debug("diagnoseImportFailure error: {}", e.getMessage());
+        }
+        return "HTTP " + httpCode + " from eTask. Check that your account has the ADMIN role.";
+    }
+
+    /** Recursively searches a JSON tree for the first non-empty "stringId" value. */
+    private String findStringId(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null) return null;
+        if (node.isObject()) {
+            com.fasterxml.jackson.databind.JsonNode v = node.get("stringId");
+            if (v != null && v.isTextual() && !v.asText().isEmpty()) return v.asText();
+            java.util.Iterator<com.fasterxml.jackson.databind.JsonNode> fields = node.elements();
+            while (fields.hasNext()) {
+                String found = findStringId(fields.next());
+                if (found != null) return found;
+            }
+        } else if (node.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode child : node) {
+                String found = findStringId(child);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /** Searches for a net by identifier and returns its stringId. */
+    private String findNetIdByIdentifier(OkHttpClient client, String credentials,
+                                         String base, String identifier) {
+        try {
+            String searchBody = mapper.writeValueAsString(Map.of("identifier", identifier));
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url(base + "/api/petrinet/search?page=0&size=1&sort=createdDate,desc")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .header("Content-Type", "application/json")
+                    .post(okhttp3.RequestBody.create(
+                            searchBody.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            okhttp3.MediaType.get("application/json")))
+                    .build();
+            try (okhttp3.Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful()) return null;
+                String body = resp.body() != null ? resp.body().string() : "";
+                com.fasterxml.jackson.databind.JsonNode nets = mapper.readTree(body)
+                        .path("_embedded").path("petriNetReferenceResources");
+                if (nets.isArray() && nets.size() > 0) {
+                    return nets.get(0).path("stringId").asText(null);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("findNetIdByIdentifier failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private boolean isSet(String v) { return v != null && !v.isBlank(); }
     /**
      * GET /api/runs?limit=20
      * Returns the last N run log entries as a JSON array (newest first).

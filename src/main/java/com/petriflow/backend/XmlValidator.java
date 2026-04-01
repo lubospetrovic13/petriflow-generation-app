@@ -14,11 +14,13 @@ import javax.xml.transform.stream.StreamSource;
 import javax.xml.validation.Schema;
 import javax.xml.validation.SchemaFactory;
 import javax.xml.validation.Validator;
+import okhttp3.OkHttpClient;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,6 +68,19 @@ public class XmlValidator {
         // 3. Gotcha pattern checks
         errors.addAll(checkGotchaPatterns(xml));
 
+        return new ValidationResult(errors);
+    }
+
+    /**
+     * Validates XML — same as validate(xml) but also runs eTask import check (step 16)
+     * if eTask credentials are configured in AppConfig. If credentials are missing, step 16 is skipped.
+     */
+    public static ValidationResult validate(String xml, AppConfig config) {
+        ValidationResult base = validate(xml);
+        if (!base.isValid) return base; // don't bother with eTask if basic checks already failed
+
+        List<String> errors = new ArrayList<>(base.errors);
+        errors.addAll(checkETaskImport(xml, config));
         return new ValidationResult(errors);
     }
 
@@ -602,4 +617,192 @@ public class XmlValidator {
         }
         return errors;
     }
+    /**
+     * Step 16 — eTask import validation.
+     * Uploads the XML to etask.netgrif.cloud, checks it imports successfully, then deletes it.
+     * Skipped silently if eTask credentials are not configured in Settings.
+     */
+    private static List<String> checkETaskImport(String xml, AppConfig config) {
+        List<String> errors = new ArrayList<>();
+
+        // Skip if credentials not configured
+        if (config == null
+                || config.eTaskEmail == null || config.eTaskEmail.isBlank()
+                || config.eTaskPassword == null || config.eTaskPassword.isBlank()) {
+            log.debug("eTask credentials not configured — skipping eTask import validation (step 16)");
+            return errors;
+        }
+
+        final String ETASK_BASE = "https://etask.netgrif.cloud";
+        String netId = null;
+
+        try {
+            String credentials = java.util.Base64.getEncoder().encodeToString(
+                    (config.eTaskEmail + ":" + config.eTaskPassword)
+                            .getBytes(StandardCharsets.UTF_8));
+
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(20, TimeUnit.SECONDS)
+                    .readTimeout(40, TimeUnit.SECONDS)
+                    .build();
+
+            // Authenticate
+            okhttp3.Request loginReq = new okhttp3.Request.Builder()
+                    .url(ETASK_BASE + "/api/auth/login")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .get().build();
+
+            try (okhttp3.Response loginResp = client.newCall(loginReq).execute()) {
+                if (!loginResp.isSuccessful()) {
+                    log.warn("eTask validation: login failed HTTP {} — skipping step 16", loginResp.code());
+                    errors.add("eTask validation (step 16): authentication failed (HTTP " + loginResp.code()
+                            + ") — check your eTask credentials in Settings");
+                    return errors;
+                }
+            }
+
+            // Prepare XML
+            String xmlToUpload = xml.trim().startsWith("<?xml")
+                    ? xml : "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xml;
+
+            Matcher idMatcher = Pattern.compile("<id>([^<]+)</id>").matcher(xmlToUpload);
+            String processIdentifier = idMatcher.find() ? idMatcher.group(1).trim() : "process";
+
+            Matcher verMatcher = Pattern.compile("<version>([^<]+)</version>").matcher(xmlToUpload);
+            String processVersion = verMatcher.find() ? verMatcher.group(1).trim() : "1.0.0";
+
+            byte[] xmlBytes = xmlToUpload.getBytes(StandardCharsets.UTF_8);
+
+            // Import
+            okhttp3.RequestBody filePart = okhttp3.RequestBody.create(
+                    xmlBytes, okhttp3.MediaType.get("application/octet-stream"));
+            okhttp3.MultipartBody multipart = new okhttp3.MultipartBody.Builder()
+                    .setType(okhttp3.MultipartBody.FORM)
+                    .addFormDataPart("file", processIdentifier + ".xml", filePart)
+                    .build();
+            okhttp3.Request importReq = new okhttp3.Request.Builder()
+                    .url(ETASK_BASE + "/api/petrinet/import")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .post(multipart).build();
+
+            try (okhttp3.Response importResp = client.newCall(importReq).execute()) {
+                String respBody = importResp.body() != null ? importResp.body().string() : "";
+                if (!importResp.isSuccessful()) {
+                    String reason = diagnoseETaskFailure(client, credentials, ETASK_BASE,
+                            processIdentifier, processVersion, importResp.code());
+                    errors.add("eTask validation (step 16): " + reason);
+                    return errors;
+                }
+                // Extract netId for cleanup
+                try {
+                    netId = findNetIdInJson(new com.fasterxml.jackson.databind.ObjectMapper().readTree(respBody));
+                } catch (Exception ignored) {}
+                if (netId == null || netId.isBlank()) {
+                    netId = searchNetId(client, credentials, ETASK_BASE, processIdentifier);
+                }
+                log.debug("eTask validation: import OK for identifier={} version={} netId={}",
+                        processIdentifier, processVersion, netId);
+            }
+
+        } catch (Exception e) {
+            log.warn("eTask validation (step 16) error: {}", e.getMessage());
+            errors.add("eTask validation (step 16): unexpected error — " + e.getMessage());
+        } finally {
+            // Always delete the imported process to keep eTask clean
+            if (netId != null && !netId.isBlank()) {
+                deleteETaskNet(config, netId);
+            }
+        }
+        return errors;
+    }
+
+    private static void deleteETaskNet(AppConfig config, String netId) {
+        try {
+            String credentials = java.util.Base64.getEncoder().encodeToString(
+                    (config.eTaskEmail + ":" + config.eTaskPassword).getBytes(StandardCharsets.UTF_8));
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build();
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url("https://etask.netgrif.cloud/api/petrinet/" + netId)
+                    .header("Authorization", "Basic " + credentials)
+                    .delete().build();
+            try (okhttp3.Response resp = client.newCall(req).execute()) {
+                if (resp.isSuccessful()) log.debug("eTask validation: deleted net {} after check", netId);
+                else log.warn("eTask validation: could not delete net {} — HTTP {}", netId, resp.code());
+            }
+        } catch (Exception e) {
+            log.warn("eTask validation: cleanup failed for net {}: {}", netId, e.getMessage());
+        }
+    }
+
+    private static String diagnoseETaskFailure(OkHttpClient client, String credentials,
+                                               String base, String identifier, String version, int httpCode) {
+        try {
+            String searchBody = "{\"identifier\": \"" + identifier + "\"}";
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url(base + "/api/petrinet/search?page=0&size=5&sort=createdDate,desc")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .header("Content-Type", "application/json")
+                    .post(okhttp3.RequestBody.create(searchBody.getBytes(StandardCharsets.UTF_8),
+                            okhttp3.MediaType.get("application/json")))
+                    .build();
+            try (okhttp3.Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful()) return "HTTP " + httpCode + " from eTask (could not diagnose further)";
+                String body = resp.body() != null ? resp.body().string() : "{}";
+                com.fasterxml.jackson.databind.JsonNode nets = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(body).path("_embedded").path("petriNetReferenceResources");
+                if (nets.isArray() && nets.size() > 0) {
+                    for (com.fasterxml.jackson.databind.JsonNode net : nets) {
+                        if (version.equals(net.path("version").asText(""))) {
+                            return "process '" + identifier + "' version '" + version
+                                    + "' already exists in eTask — bump <version> in your XML";
+                        }
+                    }
+                    return "process '" + identifier + "' exists in eTask with a different version — "
+                            + "if rejected, try bumping <version>";
+                }
+            }
+        } catch (Exception ignored) {}
+        return "HTTP " + httpCode + " from eTask — check your account has the ADMIN role";
+    }
+
+    private static String findNetIdInJson(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null) return null;
+        if (node.isObject()) {
+            com.fasterxml.jackson.databind.JsonNode v = node.get("stringId");
+            if (v != null && v.isTextual() && !v.asText().isEmpty()) return v.asText();
+            java.util.Iterator<com.fasterxml.jackson.databind.JsonNode> it = node.elements();
+            while (it.hasNext()) { String r = findNetIdInJson(it.next()); if (r != null) return r; }
+        } else if (node.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode c : node) { String r = findNetIdInJson(c); if (r != null) return r; }
+        }
+        return null;
+    }
+
+    private static String searchNetId(OkHttpClient client, String credentials, String base, String identifier) {
+        try {
+            String body = "{\"identifier\": \"" + identifier + "\"}";
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url(base + "/api/petrinet/search?page=0&size=1&sort=createdDate,desc")
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Accept", "application/hal+json")
+                    .header("Content-Type", "application/json")
+                    .post(okhttp3.RequestBody.create(body.getBytes(StandardCharsets.UTF_8),
+                            okhttp3.MediaType.get("application/json")))
+                    .build();
+            try (okhttp3.Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful()) return null;
+                String rb = resp.body() != null ? resp.body().string() : "";
+                com.fasterxml.jackson.databind.JsonNode nets = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(rb).path("_embedded").path("petriNetReferenceResources");
+                if (nets.isArray() && nets.size() > 0) return nets.get(0).path("stringId").asText(null);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+
 }

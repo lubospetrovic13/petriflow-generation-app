@@ -20,7 +20,7 @@ public class GeminiService {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiService.class);
     private static final String STREAM_URL =
-        "https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s";
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     @Autowired private AppConfig      config;
@@ -134,7 +134,7 @@ public class GeminiService {
 
                 // Validate XML and retry if errors found
                 String finalXml = fullText.toString();
-                XmlValidator.ValidationResult validation = XmlValidator.validate(finalXml);
+                XmlValidator.ValidationResult validation = XmlValidator.validate(finalXml, config);
 
                 if (!validation.isValid) {
                     log.warn("XML validation failed with {} errors, attempting retry", validation.errors.size());

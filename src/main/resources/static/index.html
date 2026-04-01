@@ -29,6 +29,12 @@
   </div>
   <div class="header-right">
     <button class="btn-theme" onclick="toggleTheme()" id="theme-btn" title="Toggle dark mode">🌙</button>
+    <button class="btn-settings" onclick="openSettings()" id="settings-btn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      <span class="settings-badge" id="settings-badge" style="display:none">!</span>
+    </button>
     <button class="btn-docs" onclick="openDocs()" title="Petriflow documentation">📖 Docs</button>
   </div>
 </header>
@@ -60,7 +66,7 @@
           <div class="lm-cut"></div>
         </div>
         <h1>Petriflow</h1>
-        <div class="tagline">Next-generation low code language.</div>
+        <div class="tagline">Choose a template prompt or write your <own class=""></own></div>
         <div class="features">
           <span>Easy to learn</span>
           <span>Powerful</span>
@@ -232,6 +238,140 @@
       </div>
     </div>
     <button class="back-to-top" id="back-to-top-btn" title="Back to top">↑</button>
+  </div>
+</div>
+
+<!-- ── Settings modal ─────────────────────────────────────────────────── -->
+<div class="settings-overlay" id="settings-overlay" onclick="handleSettingsOverlayClick(event)">
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-header">
+      <div class="settings-header-title">⚙️ Settings</div>
+      <button class="settings-close" onclick="closeSettings()" title="Close">✕</button>
+    </div>
+
+    <div class="settings-body">
+
+      <!-- API Keys -->
+      <div class="settings-section">
+        <div class="settings-section-title">API Keys</div>
+        <div class="settings-section-desc">Enter your API keys to enable each provider. Keys are stored on the server in <code>settings.json</code> and never sent to the browser unmasked.</div>
+
+        <div class="settings-field">
+          <label>Anthropic (Claude) <span class="key-status" id="ks-claude"></span></label>
+          <input type="password" id="s-anthropicApiKey" placeholder="sk-ant-api03-…" autocomplete="off"/>
+        </div>
+        <div class="settings-field">
+          <label>OpenAI <span class="key-status" id="ks-openai"></span></label>
+          <input type="password" id="s-openaiApiKey" placeholder="sk-proj-…" autocomplete="off"/>
+        </div>
+        <div class="settings-field">
+          <label>Google Gemini <span class="key-status" id="ks-gemini"></span></label>
+          <input type="password" id="s-geminiApiKey" placeholder="AIzaSy…" autocomplete="off"/>
+        </div>
+      </div>
+
+      <!-- GitHub (Open in Builder) -->
+      <div class="settings-section">
+        <div class="settings-section-title">GitHub <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Open in Builder"</span></div>
+        <div class="settings-section-desc">A public repo where generated XML files are uploaded so the Netgrif Builder can fetch them via raw URL.</div>
+        <div class="settings-field">
+          <label>Personal Access Token <span class="key-status" id="ks-github"></span></label>
+          <input type="password" id="s-githubToken" placeholder="ghp_…" autocomplete="off"/>
+        </div>
+        <div class="settings-field">
+          <label>GitHub Username</label>
+          <input type="text" id="s-githubUsername" placeholder="your-username"/>
+        </div>
+        <div class="settings-field">
+          <label>Repository Name</label>
+          <input type="text" id="s-githubRepo" placeholder="petriflow-files"/>
+        </div>
+      </div>
+
+      <!-- eTask -->
+      <div class="settings-section">
+        <div class="settings-section-title">eTask <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Upload &amp; Open in eTask"</span></div>
+        <div class="settings-section-desc">Your login credentials for <strong>etask.netgrif.cloud</strong>. The process XML will be uploaded directly to your eTask instance and you will be redirected to the cases page.</div>
+        <div class="settings-field">
+          <label>Email <span class="key-status" id="ks-etask"></span></label>
+          <input type="email" id="s-eTaskEmail" placeholder="your@email.com" autocomplete="off"/>
+        </div>
+        <div class="settings-field">
+          <label>Password</label>
+          <input type="password" id="s-eTaskPassword" placeholder="••••••••" autocomplete="off"/>
+        </div>
+      </div>
+
+      <!-- Models -->
+      <div class="settings-section">
+        <div class="settings-section-title">Models</div>
+        <div class="settings-field settings-field-row">
+          <label>Claude model</label>
+          <input type="text" id="s-claudeModel" placeholder="claude-sonnet-4-6"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>OpenAI model</label>
+          <input type="text" id="s-openaiModel" placeholder="gpt-4.1"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Gemini model</label>
+          <input type="text" id="s-geminiModel" placeholder="gemini-2.5-flash"/>
+        </div>
+      </div>
+
+      <!-- Advanced -->
+      <div class="settings-section">
+        <div class="settings-section-title">Advanced</div>
+        <div class="settings-field settings-field-row">
+          <label>Claude max tokens</label>
+          <input type="number" id="s-claudeMaxTokens" min="1000" max="200000" step="1000"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>OpenAI max tokens</label>
+          <input type="number" id="s-openaiMaxTokens" min="1000" max="32000" step="1000"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Gemini max tokens</label>
+          <input type="number" id="s-geminiMaxTokens" min="1000" max="65536" step="1000"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Claude thinking</label>
+          <label class="settings-toggle">
+            <input type="checkbox" id="s-claudeThinkingEnabled"/>
+            <span class="settings-toggle-slider"></span>
+          </label>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Claude thinking budget (tokens)</label>
+          <input type="number" id="s-claudeThinkingBudget" min="1000" max="32000" step="1000"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Gemini thinking budget (0=off)</label>
+          <input type="number" id="s-geminiThinkingBudget" min="-1" max="32000" step="1000"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>RAG top-K chunks</label>
+          <input type="number" id="s-ragTopK" min="1" max="50"/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>RAG always-include prefixes</label>
+          <input type="text" id="s-ragAlwaysInclude" placeholder="7.,8.,9."/>
+        </div>
+        <div class="settings-field settings-field-row">
+          <label>Embed provider</label>
+          <select id="s-embedProvider">
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+      </div>
+
+    </div><!-- /.settings-body -->
+
+    <div class="settings-footer">
+      <span class="settings-save-status" id="settings-save-status"></span>
+      <button class="btn-settings-save" onclick="saveSettings()">Save settings</button>
+    </div>
   </div>
 </div>
 
