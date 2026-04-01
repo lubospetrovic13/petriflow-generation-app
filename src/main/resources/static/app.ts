@@ -757,40 +757,87 @@ function finalizeStreamBubble(bubble, textContainer, xmlContainer, fullText) {
 
 function updateStreamDisplay(bubble, fullText) {
   const msgs = document.getElementById('messages');
-  const xmlStartIdx = fullText.indexOf('```xml');
+  const cursor = bubble.querySelector('.streaming-cursor');
 
-  if (xmlStartIdx === -1) {
-    const textDiv = bubble.querySelector('.stream-text') || bubble;
-    textDiv.innerHTML = renderMarkdown(fullText);
-  } else {
-    const beforeXml = fullText.slice(0, xmlStartIdx);
-    const xmlContent = fullText.slice(xmlStartIdx + 6);
-    const xmlEndIdx = xmlContent.indexOf('\n```');
-    const xmlBody = xmlEndIdx !== -1 ? xmlContent.slice(0, xmlEndIdx) : xmlContent;
-    const afterXml = xmlEndIdx !== -1 ? xmlContent.slice(xmlEndIdx + 4) : '';
+  // Parse fullText into segments: prose | closed-xml | open-xml
+  // Split on fence+xml, check each piece for closing fence
+  var segments = []; // { type: 'prose'|'xml-closed'|'xml-open', content: string }
+  var remaining = fullText;
+  var proseAcc = '';
 
-    const textDiv = bubble.querySelector('.stream-text');
-    if (textDiv) textDiv.innerHTML = renderMarkdown(beforeXml);
-
-    let xmlDiv = bubble.querySelector('.xml-block-streaming');
-    if (!xmlDiv) {
-      xmlDiv = document.createElement('div');
-      xmlDiv.className = 'xml-block-streaming';
-      const cursor = bubble.querySelector('.streaming-cursor');
-      if (cursor) bubble.insertBefore(xmlDiv, cursor);
-      else bubble.appendChild(xmlDiv);
+  while (remaining.length > 0) {
+    var FENCE = '\x60\x60\x60';
+    var xmlStart = remaining.indexOf(FENCE + 'xml');
+    if (xmlStart === -1) {
+      // No more xml blocks — rest is prose
+      proseAcc += remaining;
+      break;
     }
-    xmlDiv.textContent = xmlBody;
-    xmlDiv.scrollTop = xmlDiv.scrollHeight;
+    // Prose before this xml block
+    proseAcc += remaining.slice(0, xmlStart);
+    remaining = remaining.slice(xmlStart + 6); // skip FENCExml
 
-    if (afterXml) {
-      let afterDiv = bubble.querySelector('.stream-after');
-      if (!afterDiv) {
-        afterDiv = document.createElement('div');
-        afterDiv.className = 'stream-after';
-        bubble.appendChild(afterDiv);
+    var closeIdx = remaining.indexOf('\n' + FENCE);
+    if (closeIdx === -1) {
+      // Open (streaming) xml block — last block, no closing fence yet
+      segments.push({ type: 'prose', content: proseAcc });
+      segments.push({ type: 'xml-open', content: remaining });
+      proseAcc = '';
+      remaining = '';
+    } else {
+      // Closed xml block
+      segments.push({ type: 'prose', content: proseAcc });
+      segments.push({ type: 'xml-closed', content: remaining.slice(0, closeIdx) });
+      proseAcc = '';
+      remaining = remaining.slice(closeIdx + 4); // skip newline+fence
+    }
+  }
+  if (proseAcc) segments.push({ type: 'prose', content: proseAcc });
+
+  // Rebuild bubble content to match segments
+  // We keep existing DOM nodes tagged by index to avoid flicker
+  var streamText = bubble.querySelector('.stream-text');
+  var insertBefore = cursor || null;
+
+  // Remove all existing xml-block-streaming nodes (we'll re-render)
+  bubble.querySelectorAll('.xml-block-streaming').forEach(function(el) { el.remove(); });
+
+  // Render segments in order
+  var proseIdx = 0;
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    if (seg.type === 'prose') {
+      if (proseIdx === 0 && streamText) {
+        streamText.innerHTML = renderMarkdown(seg.content);
+      } else {
+        // Prose after an xml block — reuse .stream-after or create
+        var afterKey = 'stream-after-' + proseIdx;
+        var afterDiv = bubble.querySelector('.' + afterKey);
+        if (!afterDiv) {
+          afterDiv = document.createElement('div');
+          afterDiv.className = 'stream-after ' + afterKey;
+          if (insertBefore && insertBefore.parentNode === bubble) {
+            bubble.insertBefore(afterDiv, insertBefore);
+          } else {
+            bubble.appendChild(afterDiv);
+          }
+        }
+        afterDiv.innerHTML = renderMarkdown(seg.content);
       }
-      afterDiv.innerHTML = renderMarkdown(afterXml);
+      proseIdx++;
+    } else {
+      // xml-closed or xml-open — render as streaming xml block
+      var xmlDiv = document.createElement('div');
+      xmlDiv.className = 'xml-block-streaming' + (seg.type === 'xml-closed' ? ' xml-block-done' : '');
+      xmlDiv.textContent = seg.content;
+      if (insertBefore && insertBefore.parentNode === bubble) {
+        bubble.insertBefore(xmlDiv, insertBefore);
+      } else {
+        bubble.appendChild(xmlDiv);
+      }
+      if (seg.type === 'xml-open') {
+        xmlDiv.scrollTop = xmlDiv.scrollHeight;
+      }
     }
   }
 
@@ -1486,7 +1533,10 @@ async function saveSettings() {
 
 async function uploadAndOpenEtask(xmlContent, btn) {
   var formatted = '<?xml version="1.0" encoding="UTF-8"?>\n' + formatXml(xmlContent);
+  var btnLabel = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Open in eTask';
+
   try {
+    // Step 1: upload XML via backend (backend handles auth + import)
     var resp = await fetch('http://localhost:8080/api/upload-etask', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -1494,21 +1544,40 @@ async function uploadAndOpenEtask(xmlContent, btn) {
     });
     var data = await resp.json().catch(function() { return {}; });
     if (!resp.ok) {
-      var msg = data.error || ('HTTP ' + resp.status);
-      alert('eTask upload failed: ' + msg);
-      btn.disabled = false;
-      btn.innerHTML = '▶ Upload & Open in eTask';
-      return;
+      alert('eTask upload failed: ' + (data.error || ('HTTP ' + resp.status)));
+      btn.disabled = false; btn.innerHTML = btnLabel; return;
     }
-    // Open eTask cases page directly — if not logged in, eTask will redirect to login
-    // and return to /portal/cases after successful authentication.
-    window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
-    btn.disabled = false;
-    btn.innerHTML = '▶ Upload & Open in eTask';
+
+    // Step 2: log in via browser directly so browser gets the session cookie from etask.netgrif.cloud
+    var email = data.email || '';
+    var password = (document.getElementById('s-eTaskPassword') || {}).value || '';
+    // Password field may be cleared after save — get from settings if needed
+    if (!password || password.indexOf('•') !== -1) {
+      // Fallback: ask backend for a login redirect
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+      btn.disabled = false; btn.innerHTML = btnLabel; return;
+    }
+
+    var loginResp = await fetch('https://etask.netgrif.cloud/api/auth/login', {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Authorization': 'Basic ' + btoa(email + ':' + password),
+        'Accept': 'application/hal+json'
+      }
+    });
+
+    if (loginResp.ok) {
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+    } else {
+      // Login failed in browser — still open eTask, user will log in manually
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+    }
+
+    btn.disabled = false; btn.innerHTML = btnLabel;
   } catch (e) {
     alert('eTask upload error: ' + e.message);
-    btn.disabled = false;
-    btn.innerHTML = '▶ Upload & Open in eTask';
+    btn.disabled = false; btn.innerHTML = btnLabel;
   }
 }
 
