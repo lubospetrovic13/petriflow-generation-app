@@ -2,8 +2,15 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>Petriflow Generator</title>
+  <meta name="description" content="AI-powered Petriflow process generator"/>
+  <meta name="theme-color" content="#1e88e5"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Petriflow"/>
+  <link rel="manifest" href="manifest.json"/>
   <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -66,7 +73,7 @@
           <div class="lm-cut"></div>
         </div>
         <h1>Petriflow</h1>
-        <div class="tagline">Choose a template prompt or write your <own class=""></own></div>
+        <div class="tagline">Generate a process, ask a question, or just describe your idea</div>
         <div class="features">
           <span>Easy to learn</span>
           <span>Powerful</span>
@@ -74,110 +81,174 @@
         </div>
         <div class="suggestions">
 
-          <!-- 1. Public Request -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should consist of a public web form accessible at a web address without requiring login. Anyone can submit a request by filling in their name, surname, email (required), phone number, a text describing their request (required), and an optional file attachment. After submission, a registration desk employee reviews the incoming request and decides whether it should be routed to the Legal department or directly to the PR department. If routed to Legal, a lawyer must write a formal statement (required field) before the case moves on to PR. When the request arrives at the PR department, the PR employee can see the original request, the lawyer's statement if one was written, and must write a polite answer to the submitter. At all times the submitter should have a persistent status view at a web address where they can see the current status of their request and, once available, the final answer.">
-            <div class="sc-header"><div class="sc-icon">📋</div>Public Request &amp; Response</div>
-            <div class="sc-desc">A public-facing eForm where anyone can submit a request without logging in. The request is routed internally through registration and optionally through Legal before a PR officer writes the final response.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">Anyone submits a request via a public web form — no account required</div>
-              <div class="sc-bullet">Registration desk decides: route to Legal first, or directly to PR</div>
-              <div class="sc-bullet">Legal writes a mandatory statement if involved — PR sees it alongside the request</div>
-              <div class="sc-bullet">PR officer writes the final answer visible to the submitter</div>
-              <div class="sc-bullet">Submitter has a persistent status view throughout the entire process</div>
-            </div>
-            <div class="sc-footer">Uses an XOR-split routing pattern — Legal is optional. The status view is always accessible via a public link, even after the process is closed.</div>
-          </div>
+          <div class="suggestions-section">
+            <div class="suggestions-section-label">📱 Suggested Apps</div>
+            <div class="suggestions-grid">
 
-          <!-- 2. Leave Request -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should be an internal HR workflow for authenticated employees and managers. An employee submits a leave request by filling in the leave type (required — dropdown: Annual Leave, Sick Leave, Personal Leave), start date (required), end date (required), a reason, and an optional file attachment such as a medical certificate. After submission, the employee's direct manager reviews the request and either approves or rejects it — a comment is mandatory in both cases. If the manager rejects the request, the employee receives an email notification and the request loops back so they can correct and resubmit. If the manager approves, the request moves to an HR officer for final approval. The HR officer verifies the leave balance and either confirms or rejects — rejection also loops back to the employee with an email. Once HR approves, the employee receives an email confirmation with the approved dates. At all times the employee should have a persistent status view showing the current stage of their request and any comments left by the manager or HR.">
-            <div class="sc-header"><div class="sc-icon">🏖️</div>Leave Request Approval</div>
-            <div class="sc-desc">An internal two-level approval workflow where employees request time off and both their manager and HR must sign off before leave is confirmed. Rejections at either level loop the request back to the employee.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">Employee fills in leave type, dates, reason and optional attachment</div>
-              <div class="sc-bullet">Direct manager reviews and approves or rejects with a mandatory comment</div>
-              <div class="sc-bullet">HR performs final approval and verifies leave balance</div>
-              <div class="sc-bullet">Rejection at either level notifies the employee by email and loops back for correction</div>
-              <div class="sc-bullet">Employee has a persistent status view with comments visible at every stage</div>
-            </div>
-            <div class="sc-footer">Uses a sequential approval chain with revision loops. Email notifications sent at every decision point. The status view remains accessible to the employee throughout the entire lifecycle.</div>
-          </div>
+              <!-- 1. Public Request -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should consist of a public web form accessible at a web address without requiring login. Anyone can submit a request by filling in their name, surname, email (required), phone number, a text describing their request (required), and an optional file attachment. After submission, a registration desk employee reviews the incoming request and decides whether it should be routed to the Legal department or directly to the PR department. If routed to Legal, a lawyer must write a formal statement (required field) before the case moves on to PR. When the request arrives at the PR department, the PR employee can see the original request, the lawyer's statement if one was written, and must write a polite answer to the submitter. At all times the submitter should have a persistent status view at a web address where they can see the current status of their request and, once available, the final answer.">
+                <div class="sc-header"><div class="sc-icon">📋</div>Public Request &amp; Response</div>
+                <div class="sc-desc">A public-facing eForm where anyone can submit a request without logging in. The request is routed internally through registration and optionally through Legal before a PR officer writes the final response.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">Anyone submits a request via a public web form — no account required</div>
+                  <div class="sc-bullet">Registration desk decides: route to Legal first, or directly to PR</div>
+                  <div class="sc-bullet">Legal writes a mandatory statement if involved — PR sees it alongside the request</div>
+                  <div class="sc-bullet">PR officer writes the final answer visible to the submitter</div>
+                  <div class="sc-bullet">Submitter has a persistent status view throughout the entire process</div>
+                </div>
+                <div class="sc-footer">Uses an XOR-split routing pattern — Legal is optional. The status view is always accessible via a public link, even after the process is closed.</div>
+              </div>
 
-          <!-- 3. Email Processing Pipeline -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should be an internal email processing workflow for authenticated team members. In the first step, a user submits an incoming email by filling in the sender name (required), sender email address (required), subject (required), and the full email body (required, multiline). An optional file attachment can be included. After the user submits, a system task fires automatically without any human interaction: it sends the email subject and body to an external LLM API, which classifies the email into one of the following categories — Complaint, Inquiry, Order, Spam, Other — extracts key entities such as names, dates, and amounts as plain text, and generates a suggested response draft. The classification result, extracted entities, and response draft are stored automatically back into the case fields. In the final step, a reviewer opens the task and sees the original email alongside the AI-assigned category, extracted entities, and the suggested response draft. The reviewer can edit the draft if needed, select a final action (Reply, Forward, Archive, Escalate), and confirm to close the case. There is no public-facing view — this is an internal tool only. The API key for the LLM should be stored as a hidden field in the process.">
-            <div class="sc-header"><div class="sc-icon">📧</div>Email Processing Pipeline</div>
-            <div class="sc-desc">A hybrid human-AI workflow that combines manual email submission with automatic LLM-based classification and entity extraction. Results are presented to a reviewer who confirms the final action.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">User submits incoming email data — sender, subject, body and optional attachment</div>
-              <div class="sc-bullet">System task fires automatically and calls an LLM API to classify the email</div>
-              <div class="sc-bullet">LLM extracts entities, assigns a category, and generates a suggested reply draft</div>
-              <div class="sc-bullet">Reviewer sees all AI output, edits the draft if needed, and selects a final action</div>
-              <div class="sc-bullet">API key stored as a hidden field — never visible to end users</div>
-            </div>
-            <div class="sc-footer">Uses the hybrid human-system task pattern. The LLM call is made inside a Groovy action via async.run and results are written back with setData. Demonstrates Petriflow's AI integration capability.</div>
-          </div>
+              <!-- 2. Leave Request -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should be an internal HR workflow for authenticated employees and managers. An employee submits a leave request by filling in the leave type (required — dropdown: Annual Leave, Sick Leave, Personal Leave), start date (required), end date (required), a reason, and an optional file attachment such as a medical certificate. After submission, the employee's direct manager reviews the request and either approves or rejects it — a comment is mandatory in both cases. If the manager rejects the request, the employee receives an email notification and the request loops back so they can correct and resubmit. If the manager approves, the request moves to an HR officer for final approval. The HR officer verifies the leave balance and either confirms or rejects — rejection also loops back to the employee with an email. Once HR approves, the employee receives an email confirmation with the approved dates. At all times the employee should have a persistent status view showing the current stage of their request and any comments left by the manager or HR.">
+                <div class="sc-header"><div class="sc-icon">🏖️</div>Leave Request Approval</div>
+                <div class="sc-desc">An internal two-level approval workflow where employees request time off and both their manager and HR must sign off before leave is confirmed. Rejections at either level loop the request back to the employee.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">Employee fills in leave type, dates, reason and optional attachment</div>
+                  <div class="sc-bullet">Direct manager reviews and approves or rejects with a mandatory comment</div>
+                  <div class="sc-bullet">HR performs final approval and verifies leave balance</div>
+                  <div class="sc-bullet">Rejection at either level notifies the employee by email and loops back for correction</div>
+                  <div class="sc-bullet">Employee has a persistent status view with comments visible at every stage</div>
+                </div>
+                <div class="sc-footer">Uses a sequential approval chain with revision loops. Email notifications sent at every decision point. The status view remains accessible to the employee throughout the entire lifecycle.</div>
+              </div>
 
-          <!-- 4. Dynamic List — Linked Processes -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should consist of two separate but linked processes: a List process and an Item process. The List process contains a single permanently open task with a taskRef panel and an Add button. When the user clicks Add, a new Item case is created automatically and its task is immediately embedded as an inline editable panel inside the List task — the user can fill in the item fields directly without navigating away. Each click of Add creates one more Item case and adds its task panel to the list. The Item process is a simple form with a name (required), a description, and a numeric value field. The item task uses the system role so it can be embedded and kept alive inside the List taskRef panel. The List process must be internal — authenticated users only. There is no approval step, no routing, and no end state — the list stays permanently open so items can be added and edited at any time.">
-            <div class="sc-header"><div class="sc-icon">📝</div>Dynamic List — Linked Processes</div>
-            <div class="sc-desc">A two-process application where a List case dynamically creates and embeds Item cases inline. Clicking Add in the list spawns a new Item process and immediately shows its editable form as an embedded panel — no navigation required.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">List process has a permanent task with an Add button and an embedded taskRef panel</div>
-              <div class="sc-bullet">Clicking Add creates a new Item case and adds its task to the embedded list instantly</div>
-              <div class="sc-bullet">Each item is a separate process case — editable inline from the list view</div>
-              <div class="sc-bullet">Item process uses a system-role task so it stays alive and embedded indefinitely</div>
-              <div class="sc-bullet">No approval, no routing — the list stays open for continuous editing</div>
-            </div>
-            <div class="sc-footer">Demonstrates the button field + createCase + taskRef inter-process pattern. The simplest form of Petriflow inter-process communication — one process dynamically spawning and embedding instances of another.</div>
-          </div>
+              <!-- 3. Email Processing Pipeline -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should be an internal email processing workflow for authenticated team members. In the first step, a user submits an incoming email by filling in the sender name (required), sender email address (required), subject (required), and the full email body (required, multiline). An optional file attachment can be included. After the user submits, a system task fires automatically without any human interaction: it sends the email subject and body to an external LLM API, which classifies the email into one of the following categories — Complaint, Inquiry, Order, Spam, Other — extracts key entities such as names, dates, and amounts as plain text, and generates a suggested response draft. The classification result, extracted entities, and response draft are stored automatically back into the case fields. In the final step, a reviewer opens the task and sees the original email alongside the AI-assigned category, extracted entities, and the suggested response draft. The reviewer can edit the draft if needed, select a final action (Reply, Forward, Archive, Escalate), and confirm to close the case. There is no public-facing view — this is an internal tool only. The API key for the LLM should be stored as a hidden field in the process.">
+                <div class="sc-header"><div class="sc-icon">📧</div>Email Processing Pipeline</div>
+                <div class="sc-desc">A hybrid human-AI workflow that combines manual email submission with automatic LLM-based classification and entity extraction. Results are presented to a reviewer who confirms the final action.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">User submits incoming email data — sender, subject, body and optional attachment</div>
+                  <div class="sc-bullet">System task fires automatically and calls an LLM API to classify the email</div>
+                  <div class="sc-bullet">LLM extracts entities, assigns a category, and generates a suggested reply draft</div>
+                  <div class="sc-bullet">Reviewer sees all AI output, edits the draft if needed, and selects a final action</div>
+                  <div class="sc-bullet">API key stored as a hidden field — never visible to end users</div>
+                </div>
+                <div class="sc-footer">Uses the hybrid human-system task pattern. The LLM call is made inside a Groovy action via async.run and results are written back with setData. Demonstrates Petriflow's AI integration capability.</div>
+              </div>
 
-          <!-- 5. Bug Report Lifecycle -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should be an internal bug tracking workflow for authenticated software development teams. A reporter submits a bug by filling in a title (required), a description of the problem (required), steps to reproduce (required), a severity level (required — dropdown: Critical, High, Medium, Low), the affected component, and an optional screenshot attachment. After submission, a triage team member reviews the report, sets the internal priority, writes triage notes, and assigns the bug to the correct developer using a user selector field. The assigned developer works on the fix, writes a description of the changes made (required), and marks the bug as ready for verification. A QA engineer then verifies the fix — if verification passes, the bug is marked as resolved and the original reporter receives an email notification. If the QA engineer rejects the fix, they must provide mandatory rejection feedback and the bug loops back to the developer for rework. This rework loop can repeat any number of times until QA accepts the fix. At all times the reporter should have a persistent status view showing the current state of their bug report and, once resolved, a summary of what was fixed.">
-            <div class="sc-header"><div class="sc-icon">🐛</div>Bug Report Lifecycle</div>
-            <div class="sc-desc">A full bug tracking workflow covering submission, triage, developer fix, and QA verification. Designed for teams where reporting, fixing, and testing are handled by separate roles with a repeating rework loop between developer and QA.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">Reporter submits bug with title, description, severity, steps to reproduce and screenshot</div>
-              <div class="sc-bullet">Triage team sets priority and assigns the bug to the correct developer</div>
-              <div class="sc-bullet">Developer implements the fix and marks it ready for QA verification</div>
-              <div class="sc-bullet">QA verifies the fix — rejected fixes loop back to the developer with mandatory feedback</div>
-              <div class="sc-bullet">Reporter receives an email notification when the bug is resolved</div>
-            </div>
-            <div class="sc-footer">Supports unlimited rework loops between developer and QA. The reporter's persistent status view remains accessible throughout and shows the fix summary once the bug is resolved.</div>
-          </div>
+              <!-- 4. Dynamic List — Linked Processes -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should consist of two separate but linked processes: a List process and an Item process. The List process contains a single permanently open task with a taskRef panel and an Add button. When the user clicks Add, a new Item case is created automatically and its task is immediately embedded as an inline editable panel inside the List task — the user can fill in the item fields directly without navigating away. Each click of Add creates one more Item case and adds its task panel to the list. The Item process is a simple form with a name (required), a description, and a numeric value field. The item task uses the system role so it can be embedded and kept alive inside the List taskRef panel. The List process must be internal — authenticated users only. There is no approval step, no routing, and no end state — the list stays permanently open so items can be added and edited at any time.">
+                <div class="sc-header"><div class="sc-icon">📝</div>Dynamic List — Linked Processes</div>
+                <div class="sc-desc">A two-process application where a List case dynamically creates and embeds Item cases inline. Clicking Add in the list spawns a new Item process and immediately shows its editable form as an embedded panel — no navigation required.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">List process has a permanent task with an Add button and an embedded taskRef panel</div>
+                  <div class="sc-bullet">Clicking Add creates a new Item case and adds its task to the embedded list instantly</div>
+                  <div class="sc-bullet">Each item is a separate process case — editable inline from the list view</div>
+                  <div class="sc-bullet">Item process uses a system-role task so it stays alive and embedded indefinitely</div>
+                  <div class="sc-bullet">No approval, no routing — the list stays open for continuous editing</div>
+                </div>
+                <div class="sc-footer">Demonstrates the button field + createCase + taskRef inter-process pattern. The simplest form of Petriflow inter-process communication — one process dynamically spawning and embedding instances of another.</div>
+              </div>
 
-          <!-- 6. Purchase Order — Parallel Review -->
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application should be an internal procurement workflow for authenticated employees. A submitter fills in a purchase order form with vendor name (required), amount (required), category (required — dropdown with options: Software, Hardware, Services, Other), business justification (required), a detailed description, and an optional supporting document attachment. After submission, the PO is sent simultaneously to both the Legal department and the Finance department for parallel review — both reviews must be completed before the process can continue. The Legal reviewer checks contractual compliance and either approves or rejects with a mandatory comment. The Finance reviewer checks budget availability and either approves or rejects with a mandatory comment. If either reviewer rejects, the submitter is notified by email with the rejection reason and the request loops back so they can revise and resubmit. Once both Legal and Finance have approved, the Procurement Manager receives a task showing both review outcomes and makes the final decision to issue or reject the PO. If issued, the submitter receives an email confirmation. Throughout the process the submitter should have a persistent status view showing current state, reviewer comments, and the final outcome.">
-            <div class="sc-header"><div class="sc-icon">💰</div>Purchase Order — Parallel Review</div>
-            <div class="sc-desc">A procurement workflow where a purchase order is submitted and then reviewed simultaneously by both Legal and Finance. Both reviews must complete before the PO can be approved and issued.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">Submitter fills in vendor, amount, description, category and justification</div>
-              <div class="sc-bullet">Legal and Finance review run in parallel — AND-split pattern</div>
-              <div class="sc-bullet">Both departments can approve or reject with a mandatory comment</div>
-              <div class="sc-bullet">AND-join waits for both reviews before enabling final approval</div>
-              <div class="sc-bullet">Procurement manager makes the final call and issues or rejects the PO</div>
-            </div>
-            <div class="sc-footer">If either reviewer rejects, the submitter is notified by email and can revise and resubmit. Uses reset arcs to clear parallel branch tokens on rejection. Status visible at all times via a persistent detail view.</div>
-          </div>
+              <!-- 5. Bug Report Lifecycle -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should be an internal bug tracking workflow for authenticated software development teams. A reporter submits a bug by filling in a title (required), a description of the problem (required), steps to reproduce (required), a severity level (required — dropdown: Critical, High, Medium, Low), the affected component, and an optional screenshot attachment. After submission, a triage team member reviews the report, sets the internal priority, writes triage notes, and assigns the bug to the correct developer using a user selector field. The assigned developer works on the fix, writes a description of the changes made (required), and marks the bug as ready for verification. A QA engineer then verifies the fix — if verification passes, the bug is marked as resolved and the original reporter receives an email notification. If the QA engineer rejects the fix, they must provide mandatory rejection feedback and the bug loops back to the developer for rework. This rework loop can repeat any number of times until QA accepts the fix. At all times the reporter should have a persistent status view showing the current state of their bug report and, once resolved, a summary of what was fixed.">
+                <div class="sc-header"><div class="sc-icon">🐛</div>Bug Report Lifecycle</div>
+                <div class="sc-desc">A full bug tracking workflow covering submission, triage, developer fix, and QA verification. Designed for teams where reporting, fixing, and testing are handled by separate roles with a repeating rework loop between developer and QA.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">Reporter submits bug with title, description, severity, steps to reproduce and screenshot</div>
+                  <div class="sc-bullet">Triage team sets priority and assigns the bug to the correct developer</div>
+                  <div class="sc-bullet">Developer implements the fix and marks it ready for QA verification</div>
+                  <div class="sc-bullet">QA verifies the fix — rejected fixes loop back to the developer with mandatory feedback</div>
+                  <div class="sc-bullet">Reporter receives an email notification when the bug is resolved</div>
+                </div>
+                <div class="sc-footer">Supports unlimited rework loops between developer and QA. The reporter's persistent status view remains accessible throughout and shows the fix summary once the bug is resolved.</div>
+              </div>
+
+              <!-- 6. Purchase Order — Parallel Review -->
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application should be an internal procurement workflow for authenticated employees. A submitter fills in a purchase order form with vendor name (required), amount (required), category (required — dropdown with options: Software, Hardware, Services, Other), business justification (required), a detailed description, and an optional supporting document attachment. After submission, the PO is sent simultaneously to both the Legal department and the Finance department for parallel review — both reviews must be completed before the process can continue. The Legal reviewer checks contractual compliance and either approves or rejects with a mandatory comment. The Finance reviewer checks budget availability and either approves or rejects with a mandatory comment. If either reviewer rejects, the submitter is notified by email with the rejection reason and the request loops back so they can revise and resubmit. Once both Legal and Finance have approved, the Procurement Manager receives a task showing both review outcomes and makes the final decision to issue or reject the PO. If issued, the submitter receives an email confirmation. Throughout the process the submitter should have a persistent status view showing current state, reviewer comments, and the final outcome.">
+                <div class="sc-header"><div class="sc-icon">💰</div>Purchase Order — Parallel Review</div>
+                <div class="sc-desc">A procurement workflow where a purchase order is submitted and then reviewed simultaneously by both Legal and Finance. Both reviews must complete before the PO can be approved and issued.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">Submitter fills in vendor, amount, description, category and justification</div>
+                  <div class="sc-bullet">Legal and Finance review run in parallel — AND-split pattern</div>
+                  <div class="sc-bullet">Both departments can approve or reject with a mandatory comment</div>
+                  <div class="sc-bullet">AND-join waits for both reviews before enabling final approval</div>
+                  <div class="sc-bullet">Procurement manager makes the final call and issues or rejects the PO</div>
+                </div>
+                <div class="sc-footer">If either reviewer rejects, the submitter is notified by email and can revise and resubmit. Uses reset arcs to clear parallel branch tokens on rejection. Status visible at all times via a persistent detail view.</div>
+              </div>
 
 
-          <div class="suggestion-chip" onclick="fillSuggestion(this)"
-               data-prompt="The application consists of two separate processes: Order and Invoice. Order process — internal, authenticated users only. A user creates an order by filling in a subject (required), supplier name (required), order date (required), and notes. After submission, a manager reviews and either approves or rejects with a mandatory comment. If rejected, the order loops back to the submitter for correction and resubmission. If approved, the order moves to an open state where it waits for invoices — this task must stay permanently open so invoices can be linked at any time. The order has a persistent status view showing current state, manager comment, and all linked invoices embedded inline via a taskRef panel. Invoice process — internal, authenticated users only. A user registers an invoice by filling in invoice number (required), amount (required), invoice date (required), and uploading the invoice file (required). The invoice must be linked to an existing order — this is done via a caseRef or enumeration_map field dynamically populated with approved orders. After the invoice is registered, the order it belongs to is automatically notified: a system action in the invoice process finds the linked order case and sets a field on it to trigger a refresh of the embedded invoice panel. The invoice then waits for approval. The order owner reviews all linked invoices from within the order's permanent task and approves or rejects each one individually. Both processes are completely independent namespaces — roles, fields and transitions must be declared separately in each process XML. Cross-process communication happens only through action code using findCase, setData, assignTask, and finishTask.">
-            <div class="sc-header"><div class="sc-icon">🔗</div>Order &amp; Invoice</div>
-            <div class="sc-desc">A two-process application where orders and invoices are managed as separate but linked cases. Invoices register themselves against an order, which then displays all linked invoices embedded inline via a permanent taskRef approval panel.</div>
-            <div class="sc-bullets">
-              <div class="sc-bullet">Order process: create, manager approval loop, permanent open task with embedded invoice panel</div>
-              <div class="sc-bullet">Invoice process: register against an approved order, permanently open approval task</div>
-              <div class="sc-bullet">Linking done via enumeration_map dynamically populated with approved orders using activePlaces token check</div>
-              <div class="sc-bullet">Invoice notifies Order: system task in Order as stable setData target, task ID appended directly to taskRef</div>
-              <div class="sc-bullet">Order owner reviews and approves all linked invoices from a single embedded panel</div>
-            </div>
-            <div class="sc-footer">Demonstrates the IPC-0 cross-process taskRef pattern — the only correct approach for embedding tasks from one process into another. Uses permanently alive system task as setData target and direct taskRef append.</div>
-          </div>
+              <div class="suggestion-chip" onclick="fillSuggestion(this)"
+                   data-prompt="The application consists of two separate processes: Order and Invoice. Order process — internal, authenticated users only. A user creates an order by filling in a subject (required), supplier name (required), order date (required), and notes. After submission, a manager reviews and either approves or rejects with a mandatory comment. If rejected, the order loops back to the submitter for correction and resubmission. If approved, the order moves to an open state where it waits for invoices — this task must stay permanently open so invoices can be linked at any time. The order has a persistent status view showing current state, manager comment, and all linked invoices embedded inline via a taskRef panel. Invoice process — internal, authenticated users only. A user registers an invoice by filling in invoice number (required), amount (required), invoice date (required), and uploading the invoice file (required). The invoice must be linked to an existing order — this is done via a caseRef or enumeration_map field dynamically populated with approved orders. After the invoice is registered, the order it belongs to is automatically notified: a system action in the invoice process finds the linked order case and sets a field on it to trigger a refresh of the embedded invoice panel. The invoice then waits for approval. The order owner reviews all linked invoices from within the order's permanent task and approves or rejects each one individually. Both processes are completely independent namespaces — roles, fields and transitions must be declared separately in each process XML. Cross-process communication happens only through action code using findCase, setData, assignTask, and finishTask.">
+                <div class="sc-header"><div class="sc-icon">🔗</div>Order &amp; Invoice</div>
+                <div class="sc-desc">A two-process application where orders and invoices are managed as separate but linked cases. Invoices register themselves against an order, which then displays all linked invoices embedded inline via a permanent taskRef approval panel.</div>
+                <div class="sc-bullets">
+                  <div class="sc-bullet">Order process: create, manager approval loop, permanent open task with embedded invoice panel</div>
+                  <div class="sc-bullet">Invoice process: register against an approved order, permanently open approval task</div>
+                  <div class="sc-bullet">Linking done via enumeration_map dynamically populated with approved orders using activePlaces token check</div>
+                  <div class="sc-bullet">Invoice notifies Order: system task in Order as stable setData target, task ID appended directly to taskRef</div>
+                  <div class="sc-bullet">Order owner reviews and approves all linked invoices from a single embedded panel</div>
+                </div>
+                <div class="sc-footer">Demonstrates the IPC-0 cross-process taskRef pattern — the only correct approach for embedding tasks from one process into another. Uses permanently alive system task as setData target and direct taskRef append.</div>
+              </div>
+            </div><!-- /.suggestions-grid -->
+          </div><!-- /.suggestions-section -->
+
+          <div class="suggestions-section">
+            <div class="suggestions-section-label">💬 Ask about Petriflow</div>
+            <div class="suggestions-grid suggestions-grid--questions">
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How does Petriflow work? What is the basic idea behind it?">
+                <div class="sc-header"><div class="sc-icon">🌐</div>How does Petriflow work?</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="What are places and transitions in Petriflow and how do tokens flow between them?">
+                <div class="sc-header"><div class="sc-icon">🔵</div>Places and transitions</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How do roles work in Petriflow? What is the difference between a human role, the system role, and anonymous access?">
+                <div class="sc-header"><div class="sc-icon">👤</div>Roles and access control</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How do data fields and forms work in Petriflow? What field types are available and how do I control their visibility and editability?">
+                <div class="sc-header"><div class="sc-icon">📝</div>Data fields and forms</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How do actions work in Petriflow? What are pre and post phases, what can actions do, and how do I write them?">
+                <div class="sc-header"><div class="sc-icon">⚡</div>Actions and Groovy code</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="What are the different arc types in Petriflow — regular, read, reset, inhibitor, variable — and when should I use each one?">
+                <div class="sc-header"><div class="sc-icon">➡️</div>Arc types</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="What routing patterns exist in Petriflow? How do I model XOR splits, AND splits, loops and parallel flows?">
+                <div class="sc-header"><div class="sc-icon">🔀</div>Routing patterns</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How do system tasks work in Petriflow? When do I need them and how do I bootstrap them with async.run?">
+                <div class="sc-header"><div class="sc-icon">⚙️</div>System tasks</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How does inter-process communication work in Petriflow? How can one process create cases, embed tasks, or pass data to another process?">
+                <div class="sc-header"><div class="sc-icon">🔗</div>Inter-process communication</div>
+              </div>
+
+              <div class="suggestion-chip suggestion-chip--discuss" onclick="fillSuggestion(this)"
+                   data-prompt="How do I model a persistent status view in Petriflow so a submitter can always see the current state of their request?">
+                <div class="sc-header"><div class="sc-icon">👁️</div>Persistent status view</div>
+              </div>
+
+            </div><!-- /.suggestions-grid -->
+          </div><!-- /.suggestions-section -->
+
         </div>
       </div>
     </div><!-- /#messages -->

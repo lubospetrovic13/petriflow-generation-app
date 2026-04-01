@@ -80,8 +80,8 @@ public class ContextService {
 
         // Keywords indicating debug/fix operations
         return lastUserMsg.contains("fix") || lastUserMsg.contains("error") ||
-               lastUserMsg.contains("debug") || lastUserMsg.contains("oprav") ||
-               lastUserMsg.contains("chyb");
+                lastUserMsg.contains("debug") || lastUserMsg.contains("oprav") ||
+                lastUserMsg.contains("chyb");
     }
 
     /**
@@ -130,7 +130,7 @@ public class ContextService {
                 Map<String, String> enrichedMsg = new java.util.HashMap<>(msg);
                 enrichedMsg.put("content",
                         "[PETRIFLOW GUIDE — RELEVANT SECTIONS]\n\n" + context +
-                        "\n\n[END OF GUIDE CONTEXT]\n\n---\n\n" + msg.get("content"));
+                                "\n\n[END OF GUIDE CONTEXT]\n\n---\n\n" + msg.get("content"));
                 enriched.add(enrichedMsg);
                 injected = true;
             } else {
@@ -141,10 +141,16 @@ public class ContextService {
     }
 
     public static final String SYSTEM_PROMPT =
-        "You are a Petriflow XML generation expert. " +
-        "The Petriflow guide is provided as context in this conversation. " +
-        "Follow every rule in the guide exactly. " +
-        "Output XML in a single fenced ```xml code block, properly indented, complete, no stubs. " +
-        "Always ask ALL clarifying questions in ONE message before generating XML. " +
-        "Format your clarifying questions using markdown: use ### for headings, numbered lists for questions, and **bold** for emphasis.";
+            "You are a Petriflow expert assistant. " +
+                    "The Petriflow guide is provided as context in this conversation. " +
+                    "Follow every rule in the guide exactly. " +
+                    "\n\n" +
+                    "First determine the user's intent:\n" +
+                    "- If the user is asking a question, discussing a concept, reporting an error, or chatting: respond conversationally. Do NOT generate XML. Do NOT ask clarifying questions.\n" +
+                    "- If the user wants to build something but it is vague: offer Option A (suggest and generate) or Option B (ask clarifying questions first).\n" +
+                    "- If the user provides a fully specified description: design first, then generate XML directly.\n" +
+                    "\n" +
+                    "When generating XML: output in a single fenced ```xml code block, properly indented, complete, no stubs. " +
+                    "Always ask ALL clarifying questions in ONE message before generating XML. " +
+                    "Format questions using markdown: ### for headings, numbered lists, **bold** for emphasis.";
 }
