@@ -78,18 +78,10 @@ public class XmlValidator {
     public static ValidationResult validate(String xml, AppConfig config) {
         ValidationResult base = validate(xml);
 
-        // Only run eTask import check if the response contains a substantial Petriflow document.
-        // Path 0 (conversational) may include a small illustrative <document> with 1-2 transitions.
-        // We only validate against eTask if the document has at least 4 transitions — a real process.
+        // Only run eTask import check if the response contains a full Petriflow document.
+        // Path 0 responses never auto-generate XML — the user must explicitly confirm they want an example.
+        // So any <document> in a response is intentional and should be validated.
         if (xml == null || !xml.contains("<document") || !xml.contains("petriflow")) {
-            return base;
-        }
-        // Count <transition> occurrences as a proxy for "real process vs illustrative snippet"
-        int transitionCount = 0;
-        int idx = 0;
-        while ((idx = xml.indexOf("<transition>", idx)) != -1) { transitionCount++; idx++; }
-        if (transitionCount < 4) {
-            log.debug("eTask validation skipped — only {} transition(s), likely an illustrative example", transitionCount);
             return base;
         }
 
@@ -819,4 +811,6 @@ public class XmlValidator {
         } catch (Exception ignored) {}
         return null;
     }
+
+
 }
