@@ -14,6 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.nio.file.*;
 import java.util.*;
+import java.util.ArrayList;
 import java.util.stream.*;
 
 @RestController
@@ -26,6 +27,7 @@ public class ChatController {
     @Autowired private ClaudeService  claudeService;
     @Autowired private OpenAIService  openAIService;
     @Autowired private GeminiService  geminiService;
+    @Autowired private OllamaService  ollamaService;
     @Autowired private RagService     ragService;
     @Autowired private SettingsService settingsService;
 
@@ -45,6 +47,8 @@ public class ChatController {
             claudeService.chatStream(request.getMessages(), emitter);
         } else if (config.isOpenAI()) {
             openAIService.chatStream(request.getMessages(), emitter);
+        } else if (config.isOllama()) {
+            ollamaService.chatStream(request.getMessages(), emitter);
         } else {
             geminiService.chatStream(request.getMessages(), emitter);
         }
@@ -85,7 +89,7 @@ public class ChatController {
         String provider = updates.get("provider");
         String mode = updates.get("mode");
 
-        if (provider != null && (provider.equals("claude") || provider.equals("openai") || provider.equals("gemini"))) {
+        if (provider != null && (provider.equals("claude") || provider.equals("openai") || provider.equals("gemini") || provider.equals("ollama"))) {
             config.llmProvider = provider;
             log.info("LLM provider updated to: {}", provider);
         }
@@ -271,20 +275,23 @@ public class ChatController {
                     .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                     .build();
 
-            // Step 1: Authenticate
+            // Step 1: Authenticate — capture session cookies from response
             okhttp3.Request loginReq = new okhttp3.Request.Builder()
                     .url(ETASK_BASE + "/api/auth/login")
                     .header("Authorization", "Basic " + credentials)
                     .header("Accept", "application/hal+json")
                     .get().build();
 
+            List<String> sessionCookies = new ArrayList<>();
             try (okhttp3.Response loginResp = client.newCall(loginReq).execute()) {
                 if (!loginResp.isSuccessful()) {
                     return ResponseEntity.status(401).body(Map.of(
                             "error", "eTask authentication failed (HTTP " + loginResp.code()
                                     + "). Check your email and password in Settings."));
                 }
-                log.info("eTask login OK for {}", config.eTaskEmail);
+                // Capture all Set-Cookie headers so we can forward them to the browser
+                sessionCookies = loginResp.headers("Set-Cookie");
+                log.info("eTask login OK for {} — got {} session cookie(s)", config.eTaskEmail, sessionCookies.size());
             }
 
             // Step 2: Prepare XML

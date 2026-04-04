@@ -46,6 +46,12 @@ public class AppConfig {
     @Value("${gemini.model:gemini-2.5-flash}")
     public String geminiModel;
 
+    @Value("${ollama.base-url:http://localhost:11434}")
+    public String ollamaBaseUrl;
+
+    @Value("${ollama.model:llama3}")
+    public String ollamaModel;
+
     // ── Token limits ──────────────────────────────────────────────────────────
 
     @Value("${claude.max-output-tokens:32000}")
@@ -56,6 +62,9 @@ public class AppConfig {
 
     @Value("${gemini.max-output-tokens:65536}")
     public int geminiMaxTokens;
+
+    @Value("${ollama.max-output-tokens:8192}")
+    public int ollamaMaxTokens;
 
     // ── Thinking ──────────────────────────────────────────────────────────────
 
@@ -111,6 +120,7 @@ public class AppConfig {
     public boolean isClaude()  { return "claude".equalsIgnoreCase(llmProvider); }
     public boolean isOpenAI()  { return "openai".equalsIgnoreCase(llmProvider); }
     public boolean isGemini()  { return "gemini".equalsIgnoreCase(llmProvider); }
+    public boolean isOllama()  { return "ollama".equalsIgnoreCase(llmProvider); }
     public boolean isRagMode()     { return "rag".equalsIgnoreCase(contextMode); }
     public boolean isFullMode()    { return "full".equalsIgnoreCase(contextMode); }
     public boolean isOpenAIEmbed() { return "openai".equalsIgnoreCase(embedProvider); }
@@ -119,6 +129,7 @@ public class AppConfig {
     public String activeLlmModel() {
         if (isClaude())  return claudeModel;
         if (isOpenAI())  return openaiModel;
+        if (isOllama())  return ollamaModel;
         return geminiModel;
     }
 
@@ -126,6 +137,7 @@ public class AppConfig {
     public int activeMaxTokens() {
         if (isClaude())  return claudeMaxTokens;
         if (isOpenAI())  return openaiMaxTokens;
+        if (isOllama())  return ollamaMaxTokens;
         return geminiMaxTokens;
     }
 

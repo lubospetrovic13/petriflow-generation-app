@@ -254,19 +254,7 @@
     </div><!-- /#messages -->
 
     <div class="input-area">
-      <div class="llm-selector" id="llm-selector">
-        <label>Provider:</label>
-        <select id="llm-provider">
-          <option value="gemini">Gemini</option>
-          <option value="openai">OpenAI</option>
-          <option value="claude" selected>Claude</option>
-        </select>
-        <label>Mode:</label>
-        <select id="context-mode">
-          <option value="full" selected>Full (entire guide)</option>
-          <option value="rag">RAG (smart chunks)</option>
-        </select>
-      </div>
+      <!-- Provider and mode are now configured in Settings (⚙) -->
       <div class="input-row">
         <textarea id="user-input"
                   placeholder="Describe your process… or click a template above to get started."
@@ -322,120 +310,175 @@
 
     <div class="settings-body">
 
-      <!-- API Keys -->
-      <div class="settings-section">
-        <div class="settings-section-title">API Keys</div>
-        <div class="settings-section-desc">Enter your API keys to enable each provider. Keys are stored on the server in <code>settings.json</code> and never sent to the browser unmasked.</div>
+      <!-- ── CORE SETTINGS ── -->
+      <div class="settings-core">
 
-        <div class="settings-field">
-          <label>Anthropic (Claude) <span class="key-status" id="ks-claude"></span></label>
-          <input type="password" id="s-anthropicApiKey" placeholder="sk-ant-api03-…" autocomplete="off"/>
+        <!-- API Keys -->
+        <div class="settings-section">
+          <div class="settings-section-title">API Keys</div>
+          <div class="settings-section-desc">Keys are stored in <code>settings.json</code> on the server and never sent to the browser unmasked.</div>
+          <div class="settings-field">
+            <label>Anthropic (Claude) <span class="key-status" id="ks-claude"></span></label>
+            <input type="password" id="s-anthropicApiKey" placeholder="sk-ant-api03-…" autocomplete="off"/>
+          </div>
+          <div class="settings-field">
+            <label>OpenAI <span class="key-status" id="ks-openai"></span></label>
+            <input type="password" id="s-openaiApiKey" placeholder="sk-proj-…" autocomplete="off"/>
+          </div>
+          <div class="settings-field">
+            <label>Google Gemini <span class="key-status" id="ks-gemini"></span></label>
+            <input type="password" id="s-geminiApiKey" placeholder="AIzaSy…" autocomplete="off"/>
+          </div>
         </div>
-        <div class="settings-field">
-          <label>OpenAI <span class="key-status" id="ks-openai"></span></label>
-          <input type="password" id="s-openaiApiKey" placeholder="sk-proj-…" autocomplete="off"/>
+        <br>
+        <!-- eTask -->
+        <div class="settings-section">
+          <div class="settings-section-title">eTask <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Open in eTask"</span></div>
+          <div class="settings-field">
+            <label>Email <span class="key-status" id="ks-etask"></span></label>
+            <input type="email" id="s-eTaskEmail" placeholder="your@email.com" autocomplete="off"/>
+          </div>
+          <div class="settings-field">
+            <label>Password</label>
+            <input type="password" id="s-eTaskPassword" placeholder="••••••••" autocomplete="off"/>
+          </div>
         </div>
-        <div class="settings-field">
-          <label>Google Gemini <span class="key-status" id="ks-gemini"></span></label>
-          <input type="password" id="s-geminiApiKey" placeholder="AIzaSy…" autocomplete="off"/>
+        <br>
+        <!-- GitHub -->
+        <div class="settings-section">
+          <div class="settings-section-title">GitHub <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Open in Builder"</span></div>
+          <div class="settings-field">
+            <label>Personal Access Token <span class="key-status" id="ks-github"></span></label>
+            <input type="password" id="s-githubToken" placeholder="ghp_…" autocomplete="off"/>
+          </div>
+          <div class="settings-field settings-field-row">
+            <label>Username</label>
+            <input type="text" id="s-githubUsername" placeholder="your-username"/>
+          </div>
+          <div class="settings-field settings-field-row">
+            <label>Repository</label>
+            <input type="text" id="s-githubRepo" placeholder="petriflow-files"/>
+          </div>
         </div>
-      </div>
+        <br>
+        <!-- Provider -->
+        <div class="settings-section">
+          <div class="settings-section-title">Provider</div>
+          <div class="settings-field settings-field-row">
+            <label>LLM Provider</label>
+            <select id="s-llmProvider">
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini (Google)</option>
+              <option value="ollama">Ollama (local)</option>
+            </select>
+          </div>
+          <div class="settings-field settings-field-row">
+            <label>Context mode</label>
+            <select id="s-contextMode">
+              <option value="full">Full (entire guide)</option>
+              <option value="rag">RAG (smart chunks)</option>
+            </select>
+          </div>
+        </div>
 
-      <!-- GitHub (Open in Builder) -->
-      <div class="settings-section">
-        <div class="settings-section-title">GitHub <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Open in Builder"</span></div>
-        <div class="settings-section-desc">A public repo where generated XML files are uploaded so the Netgrif Builder can fetch them via raw URL.</div>
-        <div class="settings-field">
-          <label>Personal Access Token <span class="key-status" id="ks-github"></span></label>
-          <input type="password" id="s-githubToken" placeholder="ghp_…" autocomplete="off"/>
-        </div>
-        <div class="settings-field">
-          <label>GitHub Username</label>
-          <input type="text" id="s-githubUsername" placeholder="your-username"/>
-        </div>
-        <div class="settings-field">
-          <label>Repository Name</label>
-          <input type="text" id="s-githubRepo" placeholder="petriflow-files"/>
-        </div>
-      </div>
+      </div><!-- /.settings-core -->
 
-      <!-- eTask -->
-      <div class="settings-section">
-        <div class="settings-section-title">eTask <span style="font-weight:400;font-size:12px;color:var(--text-muted)">— required for "Upload &amp; Open in eTask"</span></div>
-        <div class="settings-section-desc">Your login credentials for <strong>etask.netgrif.cloud</strong>. The process XML will be uploaded directly to your eTask instance and you will be redirected to the cases page.</div>
-        <div class="settings-field">
-          <label>Email <span class="key-status" id="ks-etask"></span></label>
-          <input type="email" id="s-eTaskEmail" placeholder="your@email.com" autocomplete="off"/>
-        </div>
-        <div class="settings-field">
-          <label>Password</label>
-          <input type="password" id="s-eTaskPassword" placeholder="••••••••" autocomplete="off"/>
-        </div>
-      </div>
+      <!-- ── ADVANCED SETTINGS (collapsible) ── -->
+      <div class="settings-advanced">
+        <button class="settings-advanced-toggle" onclick="toggleAdvancedSettings(this)" type="button">
+          <span class="settings-advanced-arrow">▶</span> Advanced Settings
+        </button>
+        <div class="settings-advanced-body" id="settings-advanced-body" style="display:none">
 
-      <!-- Models -->
-      <div class="settings-section">
-        <div class="settings-section-title">Models</div>
-        <div class="settings-field settings-field-row">
-          <label>Claude model</label>
-          <input type="text" id="s-claudeModel" placeholder="claude-sonnet-4-6"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>OpenAI model</label>
-          <input type="text" id="s-openaiModel" placeholder="gpt-4.1"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Gemini model</label>
-          <input type="text" id="s-geminiModel" placeholder="gemini-2.5-flash"/>
-        </div>
-      </div>
+          <!-- Ollama -->
+          <div class="settings-section">
+            <div class="settings-section-title">Ollama</div>
+            <div class="settings-field settings-field-row">
+              <label>Base URL</label>
+              <input type="text" id="s-ollamaBaseUrl" placeholder="http://localhost:11434"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Model</label>
+              <input type="text" id="s-ollamaModel" placeholder="llama3"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Max tokens</label>
+              <input type="number" id="s-ollamaMaxTokens" min="1000" max="32000" step="1000"/>
+            </div>
+          </div>
 
-      <!-- Advanced -->
-      <div class="settings-section">
-        <div class="settings-section-title">Advanced</div>
-        <div class="settings-field settings-field-row">
-          <label>Claude max tokens</label>
-          <input type="number" id="s-claudeMaxTokens" min="1000" max="200000" step="1000"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>OpenAI max tokens</label>
-          <input type="number" id="s-openaiMaxTokens" min="1000" max="32000" step="1000"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Gemini max tokens</label>
-          <input type="number" id="s-geminiMaxTokens" min="1000" max="65536" step="1000"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Claude thinking</label>
-          <label class="settings-toggle">
-            <input type="checkbox" id="s-claudeThinkingEnabled"/>
-            <span class="settings-toggle-slider"></span>
-          </label>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Claude thinking budget (tokens)</label>
-          <input type="number" id="s-claudeThinkingBudget" min="1000" max="32000" step="1000"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Gemini thinking budget (0=off)</label>
-          <input type="number" id="s-geminiThinkingBudget" min="-1" max="32000" step="1000"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>RAG top-K chunks</label>
-          <input type="number" id="s-ragTopK" min="1" max="50"/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>RAG always-include prefixes</label>
-          <input type="text" id="s-ragAlwaysInclude" placeholder="7.,8.,9."/>
-        </div>
-        <div class="settings-field settings-field-row">
-          <label>Embed provider</label>
-          <select id="s-embedProvider">
-            <option value="gemini">Gemini</option>
-            <option value="openai">OpenAI</option>
-          </select>
-        </div>
-      </div>
+          <!-- Models -->
+          <div class="settings-section">
+            <div class="settings-section-title">Models</div>
+            <div class="settings-field settings-field-row">
+              <label>Claude model</label>
+              <input type="text" id="s-claudeModel" placeholder="claude-sonnet-4-6"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>OpenAI model</label>
+              <input type="text" id="s-openaiModel" placeholder="gpt-4.1"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Gemini model</label>
+              <input type="text" id="s-geminiModel" placeholder="gemini-2.5-flash"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Claude max tokens</label>
+              <input type="number" id="s-claudeMaxTokens" min="1000" max="200000" step="1000"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>OpenAI max tokens</label>
+              <input type="number" id="s-openaiMaxTokens" min="1000" max="32000" step="1000"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Gemini max tokens</label>
+              <input type="number" id="s-geminiMaxTokens" min="1000" max="65536" step="1000"/>
+            </div>
+          </div>
+
+          <!-- Thinking -->
+          <div class="settings-section">
+            <div class="settings-section-title">Thinking</div>
+            <div class="settings-field settings-field-row">
+              <label>Claude thinking</label>
+              <label class="settings-toggle">
+                <input type="checkbox" id="s-claudeThinkingEnabled"/>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Claude thinking budget (tokens)</label>
+              <input type="number" id="s-claudeThinkingBudget" min="1000" max="32000" step="1000"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Gemini thinking budget (0=off)</label>
+              <input type="number" id="s-geminiThinkingBudget" min="-1" max="32000" step="1000"/>
+            </div>
+          </div>
+
+          <!-- RAG -->
+          <div class="settings-section">
+            <div class="settings-section-title">RAG</div>
+            <div class="settings-field settings-field-row">
+              <label>Top-K chunks</label>
+              <input type="number" id="s-ragTopK" min="1" max="50"/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Always-include prefixes</label>
+              <input type="text" id="s-ragAlwaysInclude" placeholder="7.,8.,9."/>
+            </div>
+            <div class="settings-field settings-field-row">
+              <label>Embed provider</label>
+              <select id="s-embedProvider">
+                <option value="gemini">Gemini</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </div>
+          </div>
+
+        </div><!-- /.settings-advanced-body -->
+      </div><!-- /.settings-advanced -->
 
     </div><!-- /.settings-body -->
 

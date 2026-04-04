@@ -14,11 +14,6 @@
 /data/
 
 # API Keys and Secrets - NEVER commit these!
-/src/main/resources/application.properties
-/src/main/resources/application-*.properties
-.env
-.env.*
-!.env.example
 *.key
 *.pem
 *-secret.yml

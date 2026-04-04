@@ -164,6 +164,13 @@ public class ClaudeService {
                 String finalXml = fullText.toString();
                 XmlValidator.ValidationResult validation = XmlValidator.validate(finalXml, config);
 
+                // Show eTask-only errors as info (do NOT retry — LLM cannot fix eTask server errors)
+                if (!validation.eTaskErrors.isEmpty()) {
+                    String eTaskNote = "⚠️ eTask validation: " + String.join("; ", validation.eTaskErrors);
+                    emitter.send(SseEmitter.event().name("chunk")
+                            .data(mapper.writeValueAsString(Map.of("text", eTaskNote))));
+                }
+
                 if (!validation.isValid) {
                     log.warn("XML validation failed with {} errors, attempting retry", validation.errors.size());
                     entry.retry = true;

@@ -67,11 +67,14 @@ public class SettingsService {
         s.put("claudeModel",  config.claudeModel);
         s.put("openaiModel",  config.openaiModel);
         s.put("geminiModel",  config.geminiModel);
+        s.put("ollamaModel",  config.ollamaModel);
+        s.put("ollamaBaseUrl", config.ollamaBaseUrl);
 
         // Token limits
         s.put("claudeMaxTokens",  config.claudeMaxTokens);
         s.put("openaiMaxTokens",  config.openaiMaxTokens);
         s.put("geminiMaxTokens",  config.geminiMaxTokens);
+        s.put("ollamaMaxTokens",  config.ollamaMaxTokens);
 
         // Thinking
         s.put("claudeThinkingEnabled", config.claudeThinkingEnabled);
@@ -93,6 +96,10 @@ public class SettingsService {
 
         // Embed provider
         s.put("embedProvider", config.embedProvider);
+
+        // Provider + mode (moved from chat UI to settings)
+        s.put("llmProvider",  config.llmProvider);
+        s.put("contextMode",  config.contextMode);
 
         return s;
     }
@@ -158,6 +165,10 @@ public class SettingsService {
         str(s, "claudeModel",      v -> config.claudeModel      = v);
         str(s, "openaiModel",      v -> config.openaiModel      = v);
         str(s, "geminiModel",      v -> config.geminiModel      = v);
+        str(s, "ollamaModel",      v -> config.ollamaModel      = v);
+        str(s, "ollamaBaseUrl",    v -> config.ollamaBaseUrl    = v);
+        str(s, "llmProvider",      v -> config.llmProvider      = v);
+        str(s, "contextMode",      v -> config.contextMode      = v);
 
         str(s, "embedProvider",    v -> config.embedProvider     = v);
         str(s, "ragAlwaysInclude", v -> config.ragAlwaysInclude  = v);
@@ -172,6 +183,7 @@ public class SettingsService {
         intVal(s, "claudeMaxTokens",  v -> config.claudeMaxTokens  = v);
         intVal(s, "openaiMaxTokens",  v -> config.openaiMaxTokens  = v);
         intVal(s, "geminiMaxTokens",  v -> config.geminiMaxTokens  = v);
+        intVal(s, "ollamaMaxTokens",  v -> config.ollamaMaxTokens  = v);
         intVal(s, "claudeThinkingBudget",  v -> config.claudeThinkingBudget  = v);
         intVal(s, "geminiThinkingBudget",  v -> config.geminiThinkingBudget  = v);
         intVal(s, "ragTopK",           v -> config.ragTopK           = v);

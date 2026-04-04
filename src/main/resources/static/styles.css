@@ -1349,3 +1349,31 @@ header {
   .settings-field-row { flex-direction: column; align-items: flex-start; }
   .settings-field-row input, .settings-field-row select { width: 100%; }
 }
+
+/* ── Settings Advanced collapsible ──────────────────────────────────────── */
+.settings-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.settings-advanced-toggle {
+  width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  padding: 10px 2px;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-muted);
+  display: flex; align-items: center; gap: 8px;
+  transition: color .15s;
+  font-family: var(--font);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.settings-advanced-toggle:hover { color: var(--text); }
+.settings-advanced-arrow {
+  font-size: 9px;
+  transition: transform .2s;
+  display: inline-block;
+}
+.settings-advanced-toggle.open .settings-advanced-arrow { transform: rotate(90deg); }
+.settings-advanced-body {
+  display: flex; flex-direction: column; gap: 20px;
+  padding-top: 8px;
+}

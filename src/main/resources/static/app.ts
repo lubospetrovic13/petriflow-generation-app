@@ -252,15 +252,11 @@ function saveCurrent() {
       }
     }
 
-    const provider = document.getElementById('llm-provider').value;
-    const mode = document.getElementById('context-mode').value;
     activeChatId = 'chat_' + Date.now();
     chats.unshift({
       id: activeChatId,
       title,
       history: [...history],
-      provider,
-      mode,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
@@ -304,24 +300,7 @@ function loadChat(id) {
     if (inp2.value) inp2.style.height = Math.min(inp2.scrollHeight, 180) + 'px';
   }
 
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  const selector = document.getElementById('llm-selector');
-  if (chat.provider && chat.mode) {
-    providerSelect.value = chat.provider;
-    modeSelect.value = chat.mode;
-    selector.classList.remove('hidden');
-    providerSelect.disabled = true;
-    modeSelect.disabled = true;
-
-    fetch('http://localhost:8080/api/config/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: chat.provider, mode: chat.mode })
-    }).catch(e => console.error('Failed to update config:', e));
-  } else {
-    selector.classList.add('hidden');
-  }
+  // Provider/mode managed via Settings panel
 
   updateSendBtn();
   renderSidebar();
@@ -433,14 +412,7 @@ function newChat() {
   if (inp) { inp.value = ''; inp.style.height = 'auto'; }
   updateSendBtn();
 
-  const selector = document.getElementById('llm-selector');
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  if (selector) {
-    selector.classList.remove('hidden');
-    providerSelect.disabled = false;
-    modeSelect.disabled = false;
-  }
+  // Provider/mode managed via Settings panel
 
   showWelcome();
 }
@@ -523,24 +495,7 @@ async function sendMessage() {
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.remove();
 
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  const selector = document.getElementById('llm-selector');
-
-  if (!selector.classList.contains('hidden')) {
-    const provider = providerSelect.value;
-    const mode = modeSelect.value;
-
-    await fetch('http://localhost:8080/api/config/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, mode })
-    }).catch(e => console.error('Failed to update config:', e));
-
-    selector.classList.add('hidden');
-    providerSelect.disabled = true;
-    modeSelect.disabled = true;
-  }
+  // Provider and mode are configured in Settings — no chat-level selector
 
   const backendText = inp.dataset.backendPrompt || text;
   delete inp.dataset.backendPrompt;
@@ -646,10 +601,32 @@ async function sendMessage() {
 
               targetHistory.push({ role: 'assistant', content: data.full });
 
-              if (streamChatId.startsWith('temp_') && activeChatId === null) {
-                saveCurrent();
+              if (streamChatId.startsWith('temp_')) {
+                // New chat — save directly using targetHistory (not global history which may have changed)
+                let title = 'Untitled chat';
+                const lastAsst = [...targetHistory].reverse().find(function(m) { return m.role === 'assistant'; });
+                if (lastAsst) {
+                  const xmlDocs = lastAsst.content.match(/<document[\s\S]*?<\/document>/g) || [];
+                  const names = [];
+                  for (const doc of xmlDocs) {
+                    const t = doc.match(/<title>([^<]+)<\/title>/);
+                    const i = doc.match(/<id>([^<]+)<\/id>/);
+                    if (t) names.push(t[1].trim()); else if (i) names.push(i[1].trim());
+                  }
+                  if (names.length > 0) title = names.join(' & ');
+                }
+                if (title === 'Untitled chat') {
+                  const firstUser = targetHistory.find(function(m) { return m.role === 'user'; });
+                  if (firstUser) title = firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 55) + (firstUser.content.length > 55 ? '…' : '');
+                }
+                const newChatId = 'chat_' + Date.now();
+                const newChat = { id: newChatId, title: title, history: [...targetHistory], createdAt: Date.now(), updatedAt: Date.now() };
+                chats.unshift(newChat);
+                // Only update activeChatId if user is still on this stream
+                if (activeChatId === null) activeChatId = newChatId;
+                saveChatsToStorage();
               } else {
-                const chatIdx = chats.findIndex(c => c.id === streamChatId);
+                const chatIdx = chats.findIndex(function(c) { return c.id === streamChatId; });
                 if (chatIdx !== -1) {
                   chats[chatIdx].history = targetHistory;
                   chats[chatIdx].updatedAt = Date.now();
@@ -1374,6 +1351,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 var settingsLoaded = false;
 
+function toggleAdvancedSettings(btn) {
+  var body = document.getElementById('settings-advanced-body');
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'flex';
+  btn.classList.toggle('open', !isOpen);
+}
+
 function openSettings() {
   document.getElementById('settings-overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -1413,9 +1397,12 @@ function fillSettingsForm(s) {
   setInput('s-claudeModel',     s.claudeModel     || '');
   setInput('s-openaiModel',     s.openaiModel     || '');
   setInput('s-geminiModel',     s.geminiModel     || '');
+  setInput('s-ollamaModel',     s.ollamaModel     || '');
+  setInput('s-ollamaBaseUrl',   s.ollamaBaseUrl   || '');
   setInput('s-claudeMaxTokens',      s.claudeMaxTokens      != null ? s.claudeMaxTokens      : '');
   setInput('s-openaiMaxTokens',      s.openaiMaxTokens      != null ? s.openaiMaxTokens      : '');
   setInput('s-geminiMaxTokens',      s.geminiMaxTokens      != null ? s.geminiMaxTokens      : '');
+  setInput('s-ollamaMaxTokens',      s.ollamaMaxTokens      != null ? s.ollamaMaxTokens      : '');
   setInput('s-claudeThinkingBudget', s.claudeThinkingBudget != null ? s.claudeThinkingBudget : '');
   setInput('s-geminiThinkingBudget', s.geminiThinkingBudget != null ? s.geminiThinkingBudget : '');
   setInput('s-ragTopK',              s.ragTopK              != null ? s.ragTopK              : '');
@@ -1427,11 +1414,16 @@ function fillSettingsForm(s) {
   var embed = document.getElementById('s-embedProvider');
   if (embed && s.embedProvider) embed.value = s.embedProvider;
 
+  var providerSel = document.getElementById('s-llmProvider');
+  if (providerSel && s.llmProvider) providerSel.value = s.llmProvider;
+
+  var modeSel = document.getElementById('s-contextMode');
+  if (modeSel && s.contextMode) modeSel.value = s.contextMode;
+
   updateKeyStatus('ks-claude',  s.anthropicApiKey || '');
   updateKeyStatus('ks-openai',  s.openaiApiKey    || '');
   updateKeyStatus('ks-gemini',  s.geminiApiKey    || '');
   updateKeyStatus('ks-github',  s.githubToken     || '');
-  // eTask: email is plain text (not masked), so synthesize a masked-style string for updateKeyStatus
   updateKeyStatus('ks-etask', s.eTaskEmail && s.eTaskEmail.length > 0 ? 'configured***' : '');
 
   updateSettingsBadge(s);
@@ -1472,7 +1464,7 @@ async function saveSettings() {
     's-githubToken', 's-githubUsername', 's-githubRepo',
     's-claudeModel', 's-openaiModel', 's-geminiModel',
     's-ragAlwaysInclude', 's-embedProvider',
-    's-eTaskEmail'
+    's-eTaskEmail', 's-ollamaBaseUrl', 's-ollamaModel'
   ];
   var keyMap = {
     's-anthropicApiKey': 'anthropicApiKey', 's-openaiApiKey': 'openaiApiKey',
@@ -1481,12 +1473,20 @@ async function saveSettings() {
     's-claudeModel': 'claudeModel', 's-openaiModel': 'openaiModel',
     's-geminiModel': 'geminiModel', 's-ragAlwaysInclude': 'ragAlwaysInclude',
     's-embedProvider': 'embedProvider',
-    's-eTaskEmail': 'eTaskEmail'
+    's-eTaskEmail': 'eTaskEmail',
+    's-ollamaBaseUrl': 'ollamaBaseUrl',
+    's-ollamaModel': 'ollamaModel'
   };
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el && el.value !== '') payload[keyMap[id]] = el.value;
   });
+
+  // Provider + mode selects
+  var providerEl = document.getElementById('s-llmProvider');
+  if (providerEl && providerEl.value) payload['llmProvider'] = providerEl.value;
+  var modeEl = document.getElementById('s-contextMode');
+  if (modeEl && modeEl.value) payload['contextMode'] = modeEl.value;
 
   // eTask password — only send if user typed something new (not placeholder dots)
   var eTaskPwEl = document.getElementById('s-eTaskPassword');
@@ -1496,7 +1496,8 @@ async function saveSettings() {
 
   var numFields = {
     's-claudeMaxTokens': 'claudeMaxTokens', 's-openaiMaxTokens': 'openaiMaxTokens',
-    's-geminiMaxTokens': 'geminiMaxTokens', 's-claudeThinkingBudget': 'claudeThinkingBudget',
+    's-geminiMaxTokens': 'geminiMaxTokens', 's-ollamaMaxTokens': 'ollamaMaxTokens',
+    's-claudeThinkingBudget': 'claudeThinkingBudget',
     's-geminiThinkingBudget': 'geminiThinkingBudget', 's-ragTopK': 'ragTopK'
   };
   Object.keys(numFields).forEach(function(id) {

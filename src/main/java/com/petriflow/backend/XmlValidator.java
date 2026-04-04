@@ -36,11 +36,19 @@ public class XmlValidator {
 
     public static class ValidationResult {
         public final List<String> errors;
+        public final List<String> eTaskErrors; // eTask-only errors — shown to user but do NOT trigger retry
         public final boolean isValid;
 
         public ValidationResult(List<String> errors) {
             this.errors = errors;
+            this.eTaskErrors = new ArrayList<>();
             this.isValid = errors.isEmpty();
+        }
+
+        public ValidationResult(List<String> errors, List<String> eTaskErrors) {
+            this.errors = errors;
+            this.eTaskErrors = eTaskErrors;
+            this.isValid = errors.isEmpty(); // only structural errors block validity
         }
     }
 
@@ -87,9 +95,8 @@ public class XmlValidator {
 
         if (!base.isValid) return base; // don't bother with eTask if basic checks already failed
 
-        List<String> errors = new ArrayList<>(base.errors);
-        errors.addAll(checkETaskImport(xml, config));
-        return new ValidationResult(errors);
+        List<String> eTaskErrors = checkETaskImport(xml, config);
+        return new ValidationResult(base.errors, eTaskErrors);
     }
 
     /**
