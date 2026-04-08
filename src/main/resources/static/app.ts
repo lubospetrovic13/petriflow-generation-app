@@ -252,15 +252,11 @@ function saveCurrent() {
       }
     }
 
-    const provider = document.getElementById('llm-provider').value;
-    const mode = document.getElementById('context-mode').value;
     activeChatId = 'chat_' + Date.now();
     chats.unshift({
       id: activeChatId,
       title,
       history: [...history],
-      provider,
-      mode,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
@@ -304,24 +300,7 @@ function loadChat(id) {
     if (inp2.value) inp2.style.height = Math.min(inp2.scrollHeight, 180) + 'px';
   }
 
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  const selector = document.getElementById('llm-selector');
-  if (chat.provider && chat.mode) {
-    providerSelect.value = chat.provider;
-    modeSelect.value = chat.mode;
-    selector.classList.remove('hidden');
-    providerSelect.disabled = true;
-    modeSelect.disabled = true;
-
-    fetch('http://localhost:8080/api/config/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: chat.provider, mode: chat.mode })
-    }).catch(e => console.error('Failed to update config:', e));
-  } else {
-    selector.classList.add('hidden');
-  }
+  // Provider/mode managed via Settings panel
 
   updateSendBtn();
   renderSidebar();
@@ -433,14 +412,7 @@ function newChat() {
   if (inp) { inp.value = ''; inp.style.height = 'auto'; }
   updateSendBtn();
 
-  const selector = document.getElementById('llm-selector');
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  if (selector) {
-    selector.classList.remove('hidden');
-    providerSelect.disabled = false;
-    modeSelect.disabled = false;
-  }
+  // Provider/mode managed via Settings panel
 
   showWelcome();
 }
@@ -523,24 +495,7 @@ async function sendMessage() {
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.remove();
 
-  const providerSelect = document.getElementById('llm-provider');
-  const modeSelect = document.getElementById('context-mode');
-  const selector = document.getElementById('llm-selector');
-
-  if (!selector.classList.contains('hidden')) {
-    const provider = providerSelect.value;
-    const mode = modeSelect.value;
-
-    await fetch('http://localhost:8080/api/config/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, mode })
-    }).catch(e => console.error('Failed to update config:', e));
-
-    selector.classList.add('hidden');
-    providerSelect.disabled = true;
-    modeSelect.disabled = true;
-  }
+  // Provider and mode are configured in Settings — no chat-level selector
 
   const backendText = inp.dataset.backendPrompt || text;
   delete inp.dataset.backendPrompt;
@@ -646,10 +601,32 @@ async function sendMessage() {
 
               targetHistory.push({ role: 'assistant', content: data.full });
 
-              if (streamChatId.startsWith('temp_') && activeChatId === null) {
-                saveCurrent();
+              if (streamChatId.startsWith('temp_')) {
+                // New chat — save directly using targetHistory (not global history which may have changed)
+                let title = 'Untitled chat';
+                const lastAsst = [...targetHistory].reverse().find(function(m) { return m.role === 'assistant'; });
+                if (lastAsst) {
+                  const xmlDocs = lastAsst.content.match(/<document[\s\S]*?<\/document>/g) || [];
+                  const names = [];
+                  for (const doc of xmlDocs) {
+                    const t = doc.match(/<title>([^<]+)<\/title>/);
+                    const i = doc.match(/<id>([^<]+)<\/id>/);
+                    if (t) names.push(t[1].trim()); else if (i) names.push(i[1].trim());
+                  }
+                  if (names.length > 0) title = names.join(' & ');
+                }
+                if (title === 'Untitled chat') {
+                  const firstUser = targetHistory.find(function(m) { return m.role === 'user'; });
+                  if (firstUser) title = firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 55) + (firstUser.content.length > 55 ? '…' : '');
+                }
+                const newChatId = 'chat_' + Date.now();
+                const newChat = { id: newChatId, title: title, history: [...targetHistory], createdAt: Date.now(), updatedAt: Date.now() };
+                chats.unshift(newChat);
+                // Only update activeChatId if user is still on this stream
+                if (activeChatId === null) activeChatId = newChatId;
+                saveChatsToStorage();
               } else {
-                const chatIdx = chats.findIndex(c => c.id === streamChatId);
+                const chatIdx = chats.findIndex(function(c) { return c.id === streamChatId; });
                 if (chatIdx !== -1) {
                   chats[chatIdx].history = targetHistory;
                   chats[chatIdx].updatedAt = Date.now();
@@ -757,40 +734,87 @@ function finalizeStreamBubble(bubble, textContainer, xmlContainer, fullText) {
 
 function updateStreamDisplay(bubble, fullText) {
   const msgs = document.getElementById('messages');
-  const xmlStartIdx = fullText.indexOf('```xml');
+  const cursor = bubble.querySelector('.streaming-cursor');
 
-  if (xmlStartIdx === -1) {
-    const textDiv = bubble.querySelector('.stream-text') || bubble;
-    textDiv.innerHTML = renderMarkdown(fullText);
-  } else {
-    const beforeXml = fullText.slice(0, xmlStartIdx);
-    const xmlContent = fullText.slice(xmlStartIdx + 6);
-    const xmlEndIdx = xmlContent.indexOf('\n```');
-    const xmlBody = xmlEndIdx !== -1 ? xmlContent.slice(0, xmlEndIdx) : xmlContent;
-    const afterXml = xmlEndIdx !== -1 ? xmlContent.slice(xmlEndIdx + 4) : '';
+  // Parse fullText into segments: prose | closed-xml | open-xml
+  // Split on fence+xml, check each piece for closing fence
+  var segments = []; // { type: 'prose'|'xml-closed'|'xml-open', content: string }
+  var remaining = fullText;
+  var proseAcc = '';
 
-    const textDiv = bubble.querySelector('.stream-text');
-    if (textDiv) textDiv.innerHTML = renderMarkdown(beforeXml);
-
-    let xmlDiv = bubble.querySelector('.xml-block-streaming');
-    if (!xmlDiv) {
-      xmlDiv = document.createElement('div');
-      xmlDiv.className = 'xml-block-streaming';
-      const cursor = bubble.querySelector('.streaming-cursor');
-      if (cursor) bubble.insertBefore(xmlDiv, cursor);
-      else bubble.appendChild(xmlDiv);
+  while (remaining.length > 0) {
+    var FENCE = '\x60\x60\x60';
+    var xmlStart = remaining.indexOf(FENCE + 'xml');
+    if (xmlStart === -1) {
+      // No more xml blocks — rest is prose
+      proseAcc += remaining;
+      break;
     }
-    xmlDiv.textContent = xmlBody;
-    xmlDiv.scrollTop = xmlDiv.scrollHeight;
+    // Prose before this xml block
+    proseAcc += remaining.slice(0, xmlStart);
+    remaining = remaining.slice(xmlStart + 6); // skip FENCExml
 
-    if (afterXml) {
-      let afterDiv = bubble.querySelector('.stream-after');
-      if (!afterDiv) {
-        afterDiv = document.createElement('div');
-        afterDiv.className = 'stream-after';
-        bubble.appendChild(afterDiv);
+    var closeIdx = remaining.indexOf('\n' + FENCE);
+    if (closeIdx === -1) {
+      // Open (streaming) xml block — last block, no closing fence yet
+      segments.push({ type: 'prose', content: proseAcc });
+      segments.push({ type: 'xml-open', content: remaining });
+      proseAcc = '';
+      remaining = '';
+    } else {
+      // Closed xml block
+      segments.push({ type: 'prose', content: proseAcc });
+      segments.push({ type: 'xml-closed', content: remaining.slice(0, closeIdx) });
+      proseAcc = '';
+      remaining = remaining.slice(closeIdx + 4); // skip newline+fence
+    }
+  }
+  if (proseAcc) segments.push({ type: 'prose', content: proseAcc });
+
+  // Rebuild bubble content to match segments
+  // We keep existing DOM nodes tagged by index to avoid flicker
+  var streamText = bubble.querySelector('.stream-text');
+  var insertBefore = cursor || null;
+
+  // Remove all existing xml-block-streaming nodes (we'll re-render)
+  bubble.querySelectorAll('.xml-block-streaming').forEach(function(el) { el.remove(); });
+
+  // Render segments in order
+  var proseIdx = 0;
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    if (seg.type === 'prose') {
+      if (proseIdx === 0 && streamText) {
+        streamText.innerHTML = renderMarkdown(seg.content);
+      } else {
+        // Prose after an xml block — reuse .stream-after or create
+        var afterKey = 'stream-after-' + proseIdx;
+        var afterDiv = bubble.querySelector('.' + afterKey);
+        if (!afterDiv) {
+          afterDiv = document.createElement('div');
+          afterDiv.className = 'stream-after ' + afterKey;
+          if (insertBefore && insertBefore.parentNode === bubble) {
+            bubble.insertBefore(afterDiv, insertBefore);
+          } else {
+            bubble.appendChild(afterDiv);
+          }
+        }
+        afterDiv.innerHTML = renderMarkdown(seg.content);
       }
-      afterDiv.innerHTML = renderMarkdown(afterXml);
+      proseIdx++;
+    } else {
+      // xml-closed or xml-open — render as streaming xml block
+      var xmlDiv = document.createElement('div');
+      xmlDiv.className = 'xml-block-streaming' + (seg.type === 'xml-closed' ? ' xml-block-done' : '');
+      xmlDiv.textContent = seg.content;
+      if (insertBefore && insertBefore.parentNode === bubble) {
+        bubble.insertBefore(xmlDiv, insertBefore);
+      } else {
+        bubble.appendChild(xmlDiv);
+      }
+      if (seg.type === 'xml-open') {
+        xmlDiv.scrollTop = xmlDiv.scrollHeight;
+      }
     }
   }
 
@@ -1196,30 +1220,36 @@ function buildXmlActions(xmlBlocks) {
 
     const dlBtn = document.createElement('button');
     dlBtn.className = 'xml-btn primary';
-    dlBtn.innerHTML = '⬇ Download XML';
+    dlBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download XML';
     dlBtn.onclick = () => downloadXml(xmlContent);
 
     const builderBtn = document.createElement('button');
     builderBtn.className = 'xml-btn open-builder';
-    builderBtn.innerHTML = '🔗 Open in Builder';
+    builderBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Open in Builder';
     builderBtn.onclick = async () => {
       builderBtn.disabled = true;
       builderBtn.innerHTML = '⏳ Uploading…';
       await openInBuilder(xmlContent);
       builderBtn.disabled = false;
-      builderBtn.innerHTML = '🔗 Open in Builder';
+      builderBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Open in Builder';
     };
 
-    const etaskBtn = document.createElement('a');
+    const etaskBtn = document.createElement('button');
     etaskBtn.className = 'xml-btn secondary';
-    etaskBtn.innerHTML = '▶ Test in eTask';
-    etaskBtn.href = 'https://etask.netgrif.cloud/';
-    etaskBtn.target = '_blank'; etaskBtn.rel = 'noopener';
+    etaskBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Open in eTask';
+    etaskBtn.onclick = async function() {
+      etaskBtn.disabled = true;
+      etaskBtn.innerHTML = '⏳ Uploading…';
+      await uploadAndOpenEtask(xmlContent, etaskBtn);
+    };
 
+    var btns = document.createElement('div');
+    btns.className = 'xml-actions-btns';
+    btns.appendChild(dlBtn);
+    btns.appendChild(builderBtn);
+    btns.appendChild(etaskBtn);
     row.appendChild(label);
-    row.appendChild(dlBtn);
-    row.appendChild(builderBtn);
-    row.appendChild(etaskBtn);
+    row.appendChild(btns);
     wrapper.appendChild(row);
   });
 
@@ -1316,3 +1346,249 @@ document.addEventListener('DOMContentLoaded', function() {
     updateScrollButtons();
   }
 });
+
+// ── Settings modal ─────────────────────────────────────────────────────────
+
+var settingsLoaded = false;
+
+function toggleAdvancedSettings(btn) {
+  var body = document.getElementById('settings-advanced-body');
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'flex';
+  btn.classList.toggle('open', !isOpen);
+}
+
+function openSettings() {
+  document.getElementById('settings-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  if (!settingsLoaded) loadSettings();
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function handleSettingsOverlayClick(e) {
+  if (e.target.id === 'settings-overlay') closeSettings();
+}
+
+async function loadSettings() {
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings');
+    if (!resp.ok) return;
+    var s = await resp.json();
+    fillSettingsForm(s);
+    settingsLoaded = true;
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+function fillSettingsForm(s) {
+  setInput('s-anthropicApiKey', s.anthropicApiKey || '');
+  setInput('s-openaiApiKey',    s.openaiApiKey    || '');
+  setInput('s-geminiApiKey',    s.geminiApiKey    || '');
+  setInput('s-githubToken',     s.githubToken     || '');
+  setInput('s-githubUsername',  s.githubUsername  || '');
+  setInput('s-githubRepo',      s.githubRepo      || '');
+  setInput('s-eTaskEmail',    s.eTaskEmail    || '');
+  setInput('s-eTaskPassword', s.eTaskPassword ? '••••••••' : '');
+  setInput('s-claudeModel',     s.claudeModel     || '');
+  setInput('s-openaiModel',     s.openaiModel     || '');
+  setInput('s-geminiModel',     s.geminiModel     || '');
+  setInput('s-ollamaModel',     s.ollamaModel     || '');
+  setInput('s-ollamaBaseUrl',   s.ollamaBaseUrl   || '');
+  setInput('s-claudeMaxTokens',      s.claudeMaxTokens      != null ? s.claudeMaxTokens      : '');
+  setInput('s-openaiMaxTokens',      s.openaiMaxTokens      != null ? s.openaiMaxTokens      : '');
+  setInput('s-geminiMaxTokens',      s.geminiMaxTokens      != null ? s.geminiMaxTokens      : '');
+  setInput('s-ollamaMaxTokens',      s.ollamaMaxTokens      != null ? s.ollamaMaxTokens      : '');
+  setInput('s-claudeThinkingBudget', s.claudeThinkingBudget != null ? s.claudeThinkingBudget : '');
+  setInput('s-geminiThinkingBudget', s.geminiThinkingBudget != null ? s.geminiThinkingBudget : '');
+  setInput('s-ragTopK',              s.ragTopK              != null ? s.ragTopK              : '');
+  setInput('s-ragAlwaysInclude',     s.ragAlwaysInclude     || '');
+
+  var thinking = document.getElementById('s-claudeThinkingEnabled');
+  if (thinking) thinking.checked = !!s.claudeThinkingEnabled;
+
+  var embed = document.getElementById('s-embedProvider');
+  if (embed && s.embedProvider) embed.value = s.embedProvider;
+
+  var providerSel = document.getElementById('s-llmProvider');
+  if (providerSel && s.llmProvider) providerSel.value = s.llmProvider;
+
+  var modeSel = document.getElementById('s-contextMode');
+  if (modeSel && s.contextMode) modeSel.value = s.contextMode;
+
+  updateKeyStatus('ks-claude',  s.anthropicApiKey || '');
+  updateKeyStatus('ks-openai',  s.openaiApiKey    || '');
+  updateKeyStatus('ks-gemini',  s.geminiApiKey    || '');
+  updateKeyStatus('ks-github',  s.githubToken     || '');
+  updateKeyStatus('ks-etask', s.eTaskEmail && s.eTaskEmail.length > 0 ? 'configured***' : '');
+
+  updateSettingsBadge(s);
+}
+
+function setInput(id, value) {
+  var el = document.getElementById(id);
+  if (el) el.value = String(value);
+}
+
+function updateKeyStatus(id, value) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var isSet = value && value.indexOf('***') !== -1;
+  el.className = 'key-status ' + (isSet ? 'set' : 'unset');
+  el.title = isSet ? 'Key is configured' : 'Not configured';
+}
+
+function updateSettingsBadge(s) {
+  var badge = document.getElementById('settings-badge');
+  if (!badge) return;
+  var hasAny = (s.anthropicApiKey && s.anthropicApiKey.indexOf('***') !== -1) ||
+      (s.openaiApiKey    && s.openaiApiKey.indexOf('***')    !== -1) ||
+      (s.geminiApiKey    && s.geminiApiKey.indexOf('***')    !== -1);
+  badge.style.display = hasAny ? 'none' : 'block';
+}
+
+async function saveSettings() {
+  var btn = document.querySelector('.btn-settings-save');
+  var status = document.getElementById('settings-save-status');
+  btn.disabled = true;
+  status.textContent = 'Saving…';
+  status.className = 'settings-save-status';
+
+  var payload = {};
+  var fields = [
+    's-anthropicApiKey', 's-openaiApiKey', 's-geminiApiKey',
+    's-githubToken', 's-githubUsername', 's-githubRepo',
+    's-claudeModel', 's-openaiModel', 's-geminiModel',
+    's-ragAlwaysInclude', 's-embedProvider',
+    's-eTaskEmail', 's-ollamaBaseUrl', 's-ollamaModel'
+  ];
+  var keyMap = {
+    's-anthropicApiKey': 'anthropicApiKey', 's-openaiApiKey': 'openaiApiKey',
+    's-geminiApiKey': 'geminiApiKey', 's-githubToken': 'githubToken',
+    's-githubUsername': 'githubUsername', 's-githubRepo': 'githubRepo',
+    's-claudeModel': 'claudeModel', 's-openaiModel': 'openaiModel',
+    's-geminiModel': 'geminiModel', 's-ragAlwaysInclude': 'ragAlwaysInclude',
+    's-embedProvider': 'embedProvider',
+    's-eTaskEmail': 'eTaskEmail',
+    's-ollamaBaseUrl': 'ollamaBaseUrl',
+    's-ollamaModel': 'ollamaModel'
+  };
+  fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el.value !== '') payload[keyMap[id]] = el.value;
+  });
+
+  // Provider + mode selects
+  var providerEl = document.getElementById('s-llmProvider');
+  if (providerEl && providerEl.value) payload['llmProvider'] = providerEl.value;
+  var modeEl = document.getElementById('s-contextMode');
+  if (modeEl && modeEl.value) payload['contextMode'] = modeEl.value;
+
+  // eTask password — only send if user typed something new (not placeholder dots)
+  var eTaskPwEl = document.getElementById('s-eTaskPassword');
+  if (eTaskPwEl && eTaskPwEl.value !== '' && eTaskPwEl.value.indexOf('•') === -1) {
+    payload['eTaskPassword'] = eTaskPwEl.value;
+  }
+
+  var numFields = {
+    's-claudeMaxTokens': 'claudeMaxTokens', 's-openaiMaxTokens': 'openaiMaxTokens',
+    's-geminiMaxTokens': 'geminiMaxTokens', 's-ollamaMaxTokens': 'ollamaMaxTokens',
+    's-claudeThinkingBudget': 'claudeThinkingBudget',
+    's-geminiThinkingBudget': 'geminiThinkingBudget', 's-ragTopK': 'ragTopK'
+  };
+  Object.keys(numFields).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el.value !== '') payload[numFields[id]] = Number(el.value);
+  });
+
+  var thinkingEl = document.getElementById('s-claudeThinkingEnabled');
+  if (thinkingEl) payload['claudeThinkingEnabled'] = thinkingEl.checked;
+
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      throw new Error(err.error || ('HTTP ' + resp.status));
+    }
+    settingsLoaded = false;
+    await loadSettings();
+    status.textContent = '✓ Saved successfully';
+    status.className = 'settings-save-status ok';
+    setTimeout(function() { status.textContent = ''; status.className = 'settings-save-status'; }, 3000);
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+    status.className = 'settings-save-status err';
+  }
+  btn.disabled = false;
+}
+
+// ── Upload & Open in eTask ────────────────────────────────────────────────
+
+async function uploadAndOpenEtask(xmlContent, btn) {
+  var formatted = '<?xml version="1.0" encoding="UTF-8"?>\n' + formatXml(xmlContent);
+  var btnLabel = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Open in eTask';
+
+  try {
+    // Step 1: upload XML via backend (backend handles auth + import)
+    var resp = await fetch('http://localhost:8080/api/upload-etask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: formatted
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (!resp.ok) {
+      alert('eTask upload failed: ' + (data.error || ('HTTP ' + resp.status)));
+      btn.disabled = false; btn.innerHTML = btnLabel; return;
+    }
+
+    // Step 2: log in via browser directly so browser gets the session cookie from etask.netgrif.cloud
+    var email = data.email || '';
+    var password = (document.getElementById('s-eTaskPassword') || {}).value || '';
+    // Password field may be cleared after save — get from settings if needed
+    if (!password || password.indexOf('•') !== -1) {
+      // Fallback: ask backend for a login redirect
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+      btn.disabled = false; btn.innerHTML = btnLabel; return;
+    }
+
+    var loginResp = await fetch('https://etask.netgrif.cloud/api/auth/login', {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Authorization': 'Basic ' + btoa(email + ':' + password),
+        'Accept': 'application/hal+json'
+      }
+    });
+
+    if (loginResp.ok) {
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+    } else {
+      // Login failed in browser — still open eTask, user will log in manually
+      window.open('https://etask.netgrif.cloud/portal/cases', '_blank');
+    }
+
+    btn.disabled = false; btn.innerHTML = btnLabel;
+  } catch (e) {
+    alert('eTask upload error: ' + e.message);
+    btn.disabled = false; btn.innerHTML = btnLabel;
+  }
+}
+
+// Load settings on startup to show/hide badge
+(async function initSettings() {
+  try {
+    var resp = await fetch('http://localhost:8080/api/settings');
+    if (resp.ok) {
+      var s = await resp.json();
+      updateSettingsBadge(s);
+    }
+  } catch (_) {}
+})();
